@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { AppRoot } from "@telegram-apps/telegram-ui";
 import { BottomNav } from "./components/BottomNav";
 import FoodPage from "./pages/FoodPage";
+import FitnessPage from "./pages/FitnessPage";
 import ProfilePage from "./pages/ProfilePage";
 import { useTelegramSafeArea } from "./useTelegramSafeArea";
 import { getTelegramWebApp } from "./telegram";
@@ -83,28 +84,7 @@ export default function App() {
             )}
 
             {activeTab === "fitness" && (
-              <div
-                style={{
-                  padding: "20px 16px",
-                  textAlign: "center",
-                  color: "var(--text)",
-                  marginTop: 24,
-                }}
-              >
-                <div style={{ fontSize: 48, marginBottom: 12 }}>🏋️</div>
-                <p
-                  style={{
-                    fontWeight: 700,
-                    fontSize: 18,
-                    color: "var(--text-h)",
-                  }}
-                >
-                  Тренировки
-                </p>
-                <p style={{ fontSize: 14, marginTop: 6 }}>
-                  Скоро здесь появятся твои тренировки
-                </p>
-              </div>
+              <FitnessPage />
             )}
           </>
         )}
