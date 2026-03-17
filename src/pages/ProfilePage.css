@@ -2,7 +2,7 @@
   max-width: 480px;
   margin: 0 auto;
   padding: 0 20px 40px;
-  padding-top: 8px;
+  padding-top: 0;
   background-color: var(--bg-app);
   min-height: 100vh;
   animation: slideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);

@@ -33,7 +33,7 @@
   --nav-safe-space: calc(var(--nav-height) + var(--nav-offset));
 
   /* Telegram Mini App top inset */
-  --tg-top: max(env(safe-area-inset-top, 0px), 8px);
+  --tg-top: max(env(safe-area-inset-top, 0px), 24px);
 
   /* Spacing Scale */
   --space-xs: 8px;
