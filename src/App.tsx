@@ -3,6 +3,7 @@ import { AppRoot } from "@telegram-apps/telegram-ui";
 import { BottomNav } from "./components/BottomNav";
 import FoodPage from "./pages/FoodPage";
 import ProfilePage from "./pages/ProfilePage";
+import { useTelegramSafeArea } from "./useTelegramSafeArea";
 import "./App.css";
 
 export default function App() {
@@ -17,6 +18,11 @@ export default function App() {
 
     tg.expand(); // Full viewport height
     tg.ready(); // Signal ready to Telegram
+
+    export default function App() {
+      useTelegramSafeArea(); // ← одна строка
+      // ...
+    }
 
     // Sync Telegram theme to CSS vars
     if (tg.themeParams) {

@@ -2,7 +2,13 @@
   max-width: 480px;
   margin: 0 auto;
   padding: 0 20px 40px;
-  padding-top: 0;
+  /* Отступ сверху: учитываем Telegram header через CSS-переменную + fallback */
+  padding-top: max(
+    var(--tg-content-safe-area-inset-top, 0px),
+    var(--tg-safe-area-inset-top, 0px),
+    env(safe-area-inset-top, 0px),
+    16px
+  );
   background-color: var(--bg-app);
   min-height: 100vh;
   animation: slideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
@@ -63,7 +69,6 @@
   justify-content: center;
   margin-bottom: 16px;
   overflow: hidden;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
 .profile-avatar-large img {
@@ -109,6 +114,9 @@
   align-items: center;
   border: 1px solid var(--border-light);
   cursor: pointer;
+  transition:
+    transform 0.12s ease,
+    background 0.12s ease;
 }
 
 .stat-card:active {
@@ -137,7 +145,7 @@
 
 /* ── FIT SUBSCRIPTION ── */
 .fit-subscription-card {
-  background: linear-gradient(135deg, #1c1c1e 0%, #000000 100%);
+  background: #000000;
   border-radius: 24px;
   padding: 20px;
   display: flex;
@@ -145,12 +153,14 @@
   align-items: center;
   margin-bottom: 24px;
   cursor: pointer;
-  transition: transform 0.15s ease;
-  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.15);
+  transition:
+    transform 0.15s ease,
+    background 0.15s ease;
 }
 
 .fit-subscription-card:active {
   transform: scale(0.97);
+  background: #1c1c1e;
 }
 
 .fit-title {
@@ -186,13 +196,14 @@
   border-radius: 100px;
   font-size: 14px;
   font-weight: 700;
+  flex-shrink: 0;
 }
 
 /* ── MENU ── */
 .profile-menu {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 4px;
   background: var(--bg-card);
   border-radius: 24px;
   padding: 8px;
@@ -208,7 +219,7 @@
 }
 
 .menu-item:active {
-  background: #e5e5ea;
+  background: var(--bg-card-hover);
 }
 
 .menu-icon {
@@ -242,4 +253,5 @@
   font-size: 22px;
   color: var(--text-light);
   font-weight: 400;
+  line-height: 1;
 }
