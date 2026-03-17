@@ -7,7 +7,7 @@
     var(--tg-content-safe-area-inset-top, 0px),
     var(--tg-safe-area-inset-top, 0px),
     env(safe-area-inset-top, 0px),
-    16px
+    60px
   );
   background-color: var(--bg-app);
   min-height: 100vh;
