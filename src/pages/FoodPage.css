@@ -32,12 +32,15 @@ body {
   max-width: 480px;
   margin: 0 auto;
   padding: 0 20px 40px;
-  /* Отступ сверху: учитываем Telegram header через CSS-переменную + fallback */
-  padding-top: max(
-    var(--tg-content-safe-area-inset-top, 0px),
-    var(--tg-safe-area-inset-top, 0px),
-    env(safe-area-inset-top, 0px),
-    16px
+  /* Отступ сверху: inset от Telegram + ~0.7 высоты top-nav блока (≈50px) */
+  padding-top: calc(
+    max(
+        var(--tg-content-safe-area-inset-top, 0px),
+        var(--tg-safe-area-inset-top, 0px),
+        env(safe-area-inset-top, 0px),
+        16px
+      ) +
+      64px
   );
   background-color: var(--bg-app);
   min-height: 100vh;
