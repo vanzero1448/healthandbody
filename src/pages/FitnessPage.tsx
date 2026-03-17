@@ -1,7 +1,68 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
+import type { CSSProperties } from "react";
 import { getTelegramWebApp } from "../telegram";
 import type { TelegramHapticStyle } from "../telegram";
 import "./FitnessPage.css";
+
+/* ══════════════════════════════════════════════
+   TELEGRAM API HELPERS
+══════════════════════════════════════════════ */
+
+const tg = () => getTelegramWebApp();
+
+function useTelegramBack(onBack: () => void, enabled: boolean) {
+  useEffect(() => {
+    const btn = tg()?.BackButton;
+    if (!btn) return;
+    if (enabled) {
+      btn.show();
+      btn.onClick(onBack);
+    } else {
+      btn.hide();
+    }
+    return () => {
+      btn.offClick?.(onBack);
+    };
+  }, [enabled, onBack]);
+}
+
+const triggerHaptic = (style: TelegramHapticStyle = "light") => {
+  const webApp = tg();
+  if (webApp?.HapticFeedback) {
+    webApp.HapticFeedback.impactOccurred(style);
+  } else {
+    navigator.vibrate?.(8);
+  }
+};
+
+const shareProgram = (title: string, programId: string) => {
+  const webApp = tg();
+  const initDataUnsafe = webApp?.initDataUnsafe;
+  const hasUser =
+    !!initDataUnsafe &&
+    typeof initDataUnsafe === "object" &&
+    "user" in initDataUnsafe;
+  const botUsername = hasUser ? "your_bot" : null;
+  const link = botUsername
+    ? `https://t.me/${botUsername}/app?startapp=program_${programId}`
+    : window.location.href;
+
+  if (webApp?.openTelegramLink && botUsername) {
+    webApp.openTelegramLink(
+      `https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent(`Посмотри мою программу тренировок: ${title}`)}`,
+    );
+  } else if (navigator.share) {
+    navigator.share({
+      title: `Программа: ${title}`,
+      text: `Посмотри мою программу тренировок: ${title}`,
+      url: window.location.href,
+    });
+  } else {
+    navigator.clipboard?.writeText(link);
+    webApp?.showAlert?.("Ссылка скопирована!");
+  }
+  triggerHaptic("medium");
+};
 
 /* ══════════════════════════════════════════════
    TYPES
@@ -14,7 +75,6 @@ type Exercise = {
   reps: string;
   rest: string;
 };
-
 type Workout = {
   id: string;
   title: string;
@@ -23,13 +83,7 @@ type Workout = {
   color: string;
   exercises: Exercise[];
 };
-
-type ScheduleEntry = {
-  date: string; // "YYYY-MM-DD"
-  workoutId: string;
-};
-
-type MyProgram = {
+type Program = {
   id: string;
   title: string;
   description: string;
@@ -37,11 +91,9 @@ type MyProgram = {
   weeks: number;
   cover: string;
   workouts: Workout[];
-  schedule: ScheduleEntry[];
   forSale: boolean;
   priceStars: number;
 };
-
 type CatalogItem = {
   id: string;
   title: string;
@@ -51,11 +103,15 @@ type CatalogItem = {
   focus: string;
   equipment: string;
   isPaid: boolean;
-  priceStars?: number;
+  priceStars: number;
   cover: string;
   description: string;
   items: string[];
 };
+
+// scheduleMap: "YYYY-MM-DD" -> { workoutId, programId }
+type DayEntry = { workoutId: string; programId: string };
+type ScheduleMap = Record<string, DayEntry>;
 
 type Screen =
   | "main"
@@ -63,8 +119,8 @@ type Screen =
   | "workout-detail"
   | "create-program"
   | "create-workout"
-  | "create-ai-text"
-  | "create-ai-photo";
+  | "ai-text"
+  | "ai-photo";
 
 type GoalType =
   | "Похудение"
@@ -77,8 +133,8 @@ type GoalType =
    CONSTANTS
 ══════════════════════════════════════════════ */
 
-const uid = () => `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-
+const uid = () =>
+  `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
 const FOCUS_OPTIONS = [
   "Сила",
   "Тонус",
@@ -88,7 +144,6 @@ const FOCUS_OPTIONS = [
   "Выносливость",
 ];
 const LEVELS = ["Начальный", "Средний", "Продвинутый"];
-const DAYS_SHORT = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
 const GOAL_OPTIONS: GoalType[] = [
   "Похудение",
   "Набор массы",
@@ -96,7 +151,7 @@ const GOAL_OPTIONS: GoalType[] = [
   "Выносливость",
   "Здоровье",
 ];
-
+const DAYS_RU = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
 const WORKOUT_COLORS = [
   "#000000",
   "#1666b0",
@@ -104,141 +159,41 @@ const WORKOUT_COLORS = [
   "#8b2020",
   "#5a2d82",
   "#b05c00",
+  "#1a6b6b",
 ];
-
 const COVERS = [
-  "linear-gradient(135deg, #0f0f0f 0%, #2d2d2d 100%)",
-  "linear-gradient(135deg, #0a2240 0%, #1666b0 100%)",
-  "linear-gradient(135deg, #0a2e1e 0%, #1a7a50 100%)",
-  "linear-gradient(135deg, #2a0d0d 0%, #8b2020 100%)",
-  "linear-gradient(135deg, #1a0a2e 0%, #5a2d82 100%)",
+  "linear-gradient(135deg,#0f0f0f,#2d2d2d)",
+  "linear-gradient(135deg,#0a2240,#1666b0)",
+  "linear-gradient(135deg,#0a2e1e,#1a7a50)",
+  "linear-gradient(135deg,#2a0d0d,#8b2020)",
+  "linear-gradient(135deg,#1a0a2e,#5a2d82)",
 ];
 
-const CATALOG: CatalogItem[] = [
-  {
-    id: "c1",
-    title: "Сушка 6 недель",
-    author: "Coach Vera",
-    level: "Продвинутый",
-    duration: "50–70 мин",
-    focus: "Рельеф",
-    equipment: "Зал",
-    isPaid: true,
-    priceStars: 120,
-    cover: "linear-gradient(140deg, #0f0f0f, #2a2a2a)",
-    description:
-      "Программа с прогрессией нагрузки и контролем объёмов. 4 тренировки в неделю.",
-    items: [
-      "Разминка 10 мин",
-      "Силовой блок 40 мин",
-      "HIIT финишер 10 мин",
-      "Заминка 10 мин",
-    ],
-  },
-  {
-    id: "c2",
-    title: "Тонус дома",
-    author: "Fit Home Lab",
-    level: "Начальный",
-    duration: "25–35 мин",
-    focus: "Тонус",
-    equipment: "Без инвентаря",
-    isPaid: false,
-    cover: "linear-gradient(140deg, #1666b0, #4a9de0)",
-    description:
-      "Мягкий вход в тренировки: короткие сессии, без прыжков, бережная нагрузка.",
-    items: [
-      "Разминка 5 мин",
-      "Низ тела 15 мин",
-      "Корпус 10 мин",
-      "Растяжка 5 мин",
-    ],
-  },
-  {
-    id: "c3",
-    title: "Сила + Кардио",
-    author: "Urban Gym",
-    level: "Средний",
-    duration: "40–55 мин",
-    focus: "Выносливость",
-    equipment: "Гантели",
-    isPaid: true,
-    priceStars: 80,
-    cover: "linear-gradient(140deg, #101010, #606060)",
-    description:
-      "Чередование силовых и кардио блоков для стабильного прогресса.",
-    items: [
-      "Разминка 8 мин",
-      "Силовой блок 20 мин",
-      "Кардио блок 15 мин",
-      "Заминка 5 мин",
-    ],
-  },
-  {
-    id: "c4",
-    title: "Здоровая спина",
-    author: "Balance Studio",
-    level: "Начальный",
-    duration: "30–40 мин",
-    focus: "Осанка",
-    equipment: "Коврик",
-    isPaid: false,
-    cover: "linear-gradient(140deg, #0d5c4a, #2a9d7a)",
-    description:
-      "Укрепление кора и раскрытие грудного отдела. Для офисного ритма.",
-    items: [
-      "Разогрев 6 мин",
-      "Кор 14 мин",
-      "Мобильность 12 мин",
-      "Дыхание 5 мин",
-    ],
-  },
-  {
-    id: "c5",
-    title: "HIIT 20 мин",
-    author: "Fast Lab",
-    level: "Средний",
-    duration: "20 мин",
-    focus: "Жиросжигание",
-    equipment: "Без инвентаря",
-    isPaid: false,
-    cover: "linear-gradient(140deg, #2a0d0d, #8b2020)",
-    description:
-      "Интенсивные 20 минут: 8 кругов по 4 упражнения. Максимальный эффект.",
-    items: ["Разминка 3 мин", "8 кругов HIIT", "Заминка 3 мин"],
-  },
-  {
-    id: "c6",
-    title: "Пилатес PRO",
-    author: "Studio Move",
-    level: "Средний",
-    duration: "45 мин",
-    focus: "Мобильность",
-    equipment: "Коврик",
-    isPaid: true,
-    priceStars: 60,
-    cover: "linear-gradient(140deg, #1a0a2e, #5a2d82)",
-    description:
-      "Пилатес с фокусом на глубокий кор, осанку и подвижность суставов.",
-    items: [
-      "Активация кора 10 мин",
-      "Основной блок 25 мин",
-      "Стретчинг 10 мин",
-    ],
-  },
-];
+function getWeekDates(offset = 0): Date[] {
+  const today = new Date();
+  const dow = today.getDay();
+  const mon = new Date(today);
+  mon.setDate(today.getDate() - ((dow + 6) % 7) + offset * 7);
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(mon);
+    d.setDate(mon.getDate() + i);
+    return d;
+  });
+}
 
-const INITIAL_PROGRAMS: MyProgram[] = [
+const fmt = (d: Date) => d.toISOString().slice(0, 10);
+const isToday = (d: Date) => fmt(d) === fmt(new Date());
+
+const INITIAL_PROGRAMS: Program[] = [
   {
     id: "p1",
     title: "Сила 3×",
-    description: "Базовые движения + корпус. Прогрессия каждые 2 недели.",
+    description: "Базовые движения + прогрессия нагрузки каждые 2 недели.",
     level: "Средний",
     weeks: 4,
     cover: COVERS[0],
     forSale: false,
     priceStars: 99,
-    schedule: [],
     workouts: [
       {
         id: "w1",
@@ -300,190 +255,406 @@ const INITIAL_PROGRAMS: MyProgram[] = [
           },
         ],
       },
+      {
+        id: "w3",
+        title: "День C — Спина",
+        duration: "50 мин",
+        focus: "Спина",
+        color: "#0d5c4a",
+        exercises: [
+          {
+            id: "e7",
+            name: "Становая тяга",
+            sets: 4,
+            reps: "4–6",
+            rest: "3 мин",
+          },
+          {
+            id: "e8",
+            name: "Тяга штанги в наклоне",
+            sets: 3,
+            reps: "8–10",
+            rest: "2 мин",
+          },
+          {
+            id: "e9",
+            name: "Подтягивания",
+            sets: 3,
+            reps: "max",
+            rest: "2 мин",
+          },
+        ],
+      },
     ],
   },
 ];
 
 /* ══════════════════════════════════════════════
-   HELPERS
-══════════════════════════════════════════════ */
-
-function getWeekDates(offset = 0): Date[] {
-  const today = new Date();
-  const dow = today.getDay(); // 0 = Sun
-  const monday = new Date(today);
-  monday.setDate(today.getDate() - ((dow + 6) % 7) + offset * 7);
-  return Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(monday);
-    d.setDate(monday.getDate() + i);
-    return d;
-  });
-}
-
-function fmtDate(d: Date) {
-  return d.toISOString().slice(0, 10);
-}
-
-function isToday(d: Date) {
-  return fmtDate(d) === fmtDate(new Date());
-}
-
-const triggerHaptic = (style: TelegramHapticStyle = "light") => {
-  const tg = getTelegramWebApp();
-  if (tg?.HapticFeedback) {
-    tg.HapticFeedback.impactOccurred(style);
-  } else if (navigator.vibrate) {
-    navigator.vibrate(8);
-  }
-};
-
-/* ══════════════════════════════════════════════
    ICONS
 ══════════════════════════════════════════════ */
 
-const ChevronLeft = () => (
-  <svg
-    width="20"
-    height="20"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2.5"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-  >
-    <path d="M15 18l-6-6 6-6" />
-  </svg>
-);
+const Icon = {
+  Plus: ({ s = 18 }: { s?: number }) => (
+    <svg
+      width={s}
+      height={s}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+    >
+      <path d="M12 5v14M5 12h14" />
+    </svg>
+  ),
+  Trash: ({ s = 16 }: { s?: number }) => (
+    <svg
+      width={s}
+      height={s}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <polyline points="3 6 5 6 21 6" />
+      <path d="M19 6l-1 14H6L5 6" />
+      <path d="M10 11v6M14 11v6M9 6V4h6v2" />
+    </svg>
+  ),
+  Star: ({ s = 13 }: { s?: number }) => (
+    <svg width={s} height={s} viewBox="0 0 24 24" fill="currentColor">
+      <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+    </svg>
+  ),
+  Sparkle: ({ s = 18 }: { s?: number }) => (
+    <svg
+      width={s}
+      height={s}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+    >
+      <path d="M12 3l1.5 5.5L19 10l-5.5 1.5L12 17l-1.5-5.5L5 10l5.5-1.5z" />
+      <path d="M19 3l.5 1.5L21 5l-1.5.5L19 7l-.5-1.5L17 5l1.5-.5z" />
+      <path d="M5 17l.5 1.5L7 19l-1.5.5L5 21l-.5-1.5L3 19l1.5-.5z" />
+    </svg>
+  ),
+  Camera: ({ s = 22 }: { s?: number }) => (
+    <svg
+      width={s}
+      height={s}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+    >
+      <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+      <circle cx="12" cy="13" r="4" />
+    </svg>
+  ),
+  Pencil: ({ s = 22 }: { s?: number }) => (
+    <svg
+      width={s}
+      height={s}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+    >
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+    </svg>
+  ),
+  Share: ({ s = 18 }: { s?: number }) => (
+    <svg
+      width={s}
+      height={s}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <circle cx="18" cy="5" r="3" />
+      <circle cx="6" cy="12" r="3" />
+      <circle cx="18" cy="19" r="3" />
+      <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+      <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+    </svg>
+  ),
+  X: ({ s = 16 }: { s?: number }) => (
+    <svg
+      width={s}
+      height={s}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+    >
+      <path d="M18 6L6 18M6 6l12 12" />
+    </svg>
+  ),
+  Check: ({ s = 16 }: { s?: number }) => (
+    <svg
+      width={s}
+      height={s}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+    >
+      <path d="M20 6L9 17l-5-5" />
+    </svg>
+  ),
+  ChevronRight: ({ s = 18 }: { s?: number }) => (
+    <svg
+      width={s}
+      height={s}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+    >
+      <path d="M9 18l6-6-6-6" />
+    </svg>
+  ),
+};
 
-const PlusIcon = ({ size = 18 }: { size?: number }) => (
-  <svg
-    width={size}
-    height={size}
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2.5"
-    strokeLinecap="round"
-  >
-    <path d="M12 5v14M5 12h14" />
-  </svg>
-);
+/* ══════════════════════════════════════════════
+   HELPERS — allWorkouts flat list
+══════════════════════════════════════════════ */
 
-const TrashIcon = () => (
-  <svg
-    width="16"
-    height="16"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-  >
-    <polyline points="3 6 5 6 21 6" />
-    <path d="M19 6l-1 14H6L5 6" />
-    <path d="M10 11v6M14 11v6" />
-    <path d="M9 6V4h6v2" />
-  </svg>
-);
+type FlatWorkout = Workout & { programId: string; programTitle: string };
 
-const StarIcon = ({ size = 13 }: { size?: number }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
-    <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-  </svg>
-);
+/* ══════════════════════════════════════════════
+   SCHEDULE EDITOR BOTTOM SHEET
+   Shows a grid: rows = workouts, cols = days
+   Each cell toggleable
+══════════════════════════════════════════════ */
 
-const SparkleIcon = () => (
-  <svg
-    width="16"
-    height="16"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-  >
-    <path d="M12 3l1.5 5.5L19 10l-5.5 1.5L12 17l-1.5-5.5L5 10l5.5-1.5z" />
-    <path d="M19 3l.5 1.5L21 5l-1.5.5L19 7l-.5-1.5L17 5l1.5-.5z" />
-    <path d="M5 17l.5 1.5L7 19l-1.5.5L5 21l-.5-1.5L3 19l1.5-.5z" />
-  </svg>
-);
+type ScheduleEditorProps = {
+  allWorkouts: FlatWorkout[];
+  weekDates: Date[];
+  scheduleMap: ScheduleMap;
+  onApply: (map: ScheduleMap) => void;
+  onClose: () => void;
+};
 
-const CameraIcon = () => (
-  <svg
-    width="24"
-    height="24"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-  >
-    <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
-    <circle cx="12" cy="13" r="4" />
-  </svg>
-);
+function ScheduleEditor({
+  allWorkouts,
+  weekDates,
+  scheduleMap,
+  onApply,
+  onClose,
+}: ScheduleEditorProps) {
+  const [local, setLocal] = useState<ScheduleMap>({ ...scheduleMap });
 
-const PencilIcon = () => (
-  <svg
-    width="24"
-    height="24"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-  >
-    <path d="M12 20h9" />
-    <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
-  </svg>
-);
+  const toggle = (dateStr: string, w: FlatWorkout) => {
+    triggerHaptic("light");
+    setLocal((prev) => {
+      const cur = prev[dateStr];
+      if (cur && cur.workoutId === w.id) {
+        const n = { ...prev };
+        delete n[dateStr];
+        return n;
+      }
+      return {
+        ...prev,
+        [dateStr]: { workoutId: w.id, programId: w.programId },
+      };
+    });
+  };
+
+  const clearAll = () => {
+    setLocal({});
+    triggerHaptic("medium");
+  };
+
+  // Apply workout to specific days pattern
+  const applyPattern = (w: FlatWorkout, days: number[]) => {
+    triggerHaptic("medium");
+    setLocal((prev) => {
+      const n = { ...prev };
+      weekDates.forEach((d, i) => {
+        if (days.includes(i))
+          n[fmt(d)] = { workoutId: w.id, programId: w.programId };
+      });
+      return n;
+    });
+  };
+
+  return (
+    <div className="sheet-overlay-wrap">
+      <div className="sheet-overlay" onClick={onClose} />
+      <div className="bottom-sheet schedule-sheet">
+        <div className="sheet-handle-bar" />
+        <div className="schedule-sheet-header">
+          <span className="schedule-sheet-title">Расписание недели</span>
+          <div className="schedule-sheet-actions">
+            <button
+              className="sched-clear-btn"
+              type="button"
+              onClick={clearAll}
+            >
+              Очистить
+            </button>
+            <button
+              className="sched-done-btn"
+              type="button"
+              onClick={() => {
+                onApply(local);
+                triggerHaptic("medium");
+                onClose();
+              }}
+            >
+              <Icon.Check /> Готово
+            </button>
+          </div>
+        </div>
+
+        {/* Day headers */}
+        <div className="sched-day-row header-row">
+          <div className="sched-workout-col-label" />
+          {weekDates.map((d, i) => (
+            <div
+              key={i}
+              className={`sched-day-header ${isToday(d) ? "today" : ""}`}
+            >
+              <span className="sched-day-name">{DAYS_RU[i]}</span>
+              <span className="sched-day-num">{d.getDate()}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* Rows per workout */}
+        <div className="sched-rows">
+          {allWorkouts.length === 0 ? (
+            <div className="sched-empty">Сначала создай тренировки</div>
+          ) : (
+            allWorkouts.map((w) => (
+              <div key={w.id} className="sched-row">
+                <div className="sched-workout-label">
+                  <span
+                    className="sched-wk-dot"
+                    style={{ background: w.color }}
+                  />
+                  <div>
+                    <div className="sched-wk-name">{w.title}</div>
+                    <div className="sched-wk-prog">{w.programTitle}</div>
+                  </div>
+                </div>
+                {weekDates.map((d, i) => {
+                  const ds = fmt(d);
+                  const active = local[ds]?.workoutId === w.id;
+                  return (
+                    <div
+                      key={i}
+                      className={`sched-cell ${active ? "active" : ""}`}
+                      style={
+                        { "--cell-color": w.color } as CSSProperties
+                      }
+                      onClick={() => toggle(ds, w)}
+                    >
+                      {active && <Icon.Check s={12} />}
+                    </div>
+                  );
+                })}
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* Quick patterns */}
+        {allWorkouts.length > 0 && (
+          <div className="sched-patterns">
+            <div className="sched-patterns-title">Быстрые шаблоны</div>
+            {allWorkouts.slice(0, 3).map((w) => (
+              <div key={w.id} className="sched-pattern-row">
+                <div className="sched-pattern-label">
+                  <span
+                    className="sched-wk-dot"
+                    style={{ background: w.color }}
+                  />
+                  <span className="sched-pattern-name">{w.title}</span>
+                </div>
+                <div className="sched-pattern-btns">
+                  {[
+                    { label: "Пн Ср Пт", days: [0, 2, 4] },
+                    { label: "Вт Чт Сб", days: [1, 3, 5] },
+                    { label: "Пн–Пт", days: [0, 1, 2, 3, 4] },
+                  ].map((p) => (
+                    <button
+                      key={p.label}
+                      className="sched-pattern-btn"
+                      type="button"
+                      onClick={() => applyPattern(w, p.days)}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════
+   PAGE TITLE HEADER (replaces back button)
+══════════════════════════════════════════════ */
+
+function PageHeader({ title }: { title: string }) {
+  return (
+    <div className="page-title-header">
+      <span className="page-title-text">{title}</span>
+    </div>
+  );
+}
 
 /* ══════════════════════════════════════════════
    MAIN COMPONENT
 ══════════════════════════════════════════════ */
 
 export default function FitnessPage() {
-  /* ── Navigation ── */
+  /* Navigation */
+  const [screen, setScreen] = useState<Screen>("main");
   const [mainTab, setMainTab] = useState<"personal" | "catalog">("personal");
   const [catSubTab, setCatSubTab] = useState<"catalog" | "mine">("catalog");
-  const [screen, setScreen] = useState<Screen>("main");
 
-  /* ── Data ── */
-  const [programs, setPrograms] = useState<MyProgram[]>(INITIAL_PROGRAMS);
+  /* Data */
+  const [programs, setPrograms] = useState<Program[]>(INITIAL_PROGRAMS);
+  const [scheduleMap, setScheduleMap] = useState<ScheduleMap>({});
   const [purchasedIds, setPurchasedIds] = useState<string[]>([]);
-  const [savedIds, setSavedIds] = useState<string[]>([]);
 
-  /* ── User goals ── */
+  /* UI state */
   const [goal, setGoal] = useState<GoalType>("Рельеф");
   const [showGoalEdit, setShowGoalEdit] = useState(false);
-
-  /* ── Schedule ── */
   const [weekOffset, setWeekOffset] = useState(0);
-  const [selectedDate, setSelectedDate] = useState(fmtDate(new Date()));
-  const [scheduleMap, setScheduleMap] = useState<
-    Record<string, { workoutId: string; programId: string }>
-  >({});
-  const [showAssign, setShowAssign] = useState(false);
-
-  /* ── Active refs ── */
-  const [activeProgramId, setActiveProgramId] = useState<string | null>(null);
-  const [activeWorkoutId, setActiveWorkoutId] = useState<string | null>(null);
+  const [showScheduleEditor, setShowScheduleEditor] = useState(false);
   const [catalogItem, setCatalogItem] = useState<CatalogItem | null>(null);
   const [catFilter, setCatFilter] = useState<"all" | "free" | "paid">("all");
+  const [activeProgramId, setActiveProgramId] = useState<string | null>(null);
+  const [activeWorkoutId, setActiveWorkoutId] = useState<string | null>(null);
 
-  /* ── New program form ── */
+  /* Forms */
   const [npTitle, setNpTitle] = useState("");
   const [npDesc, setNpDesc] = useState("");
   const [npLevel, setNpLevel] = useState(LEVELS[1]);
   const [npWeeks, setNpWeeks] = useState(4);
   const [npCoverIdx, setNpCoverIdx] = useState(0);
-
-  /* ── New workout form ── */
   const [wTitle, setWTitle] = useState("");
   const [wDuration, setWDuration] = useState("");
   const [wFocus, setWFocus] = useState(FOCUS_OPTIONS[0]);
@@ -493,34 +664,16 @@ export default function FitnessPage() {
   const [wExSets, setWExSets] = useState(3);
   const [wExReps, setWExReps] = useState("10–12");
   const [wExRest, setWExRest] = useState("60 сек");
-
-  /* ── AI text form ── */
+  const [editExName, setEditExName] = useState("");
   const [aiQuery, setAiQuery] = useState("");
   const [aiLoading, setAiLoading] = useState(false);
 
-  /* ── Edit workout (existing) ── */
-  const [editExName, setEditExName] = useState("");
-
-  /* ── Derived ── */
+  /* Derived */
   const weekDates = useMemo(() => getWeekDates(weekOffset), [weekOffset]);
   const activeProgram = programs.find((p) => p.id === activeProgramId) ?? null;
   const activeWorkout =
     activeProgram?.workouts.find((w) => w.id === activeWorkoutId) ?? null;
-  const filteredCatalog =
-    catFilter === "free"
-      ? CATALOG.filter((c) => !c.isPaid)
-      : catFilter === "paid"
-        ? CATALOG.filter((c) => c.isPaid)
-        : CATALOG;
-
-  const selectedDayEntry = scheduleMap[selectedDate];
-  const selectedDayWorkout = selectedDayEntry
-    ? (programs
-        .find((p) => p.id === selectedDayEntry.programId)
-        ?.workouts.find((w) => w.id === selectedDayEntry.workoutId) ?? null)
-    : null;
-
-  const allWorkoutsFlat = useMemo(
+  const allWorkouts = useMemo<FlatWorkout[]>(
     () =>
       programs.flatMap((p) =>
         p.workouts.map((w) => ({
@@ -532,16 +685,26 @@ export default function FitnessPage() {
     [programs],
   );
 
-  /* ── Mutations ── */
+  /* Telegram BackButton */
+  const handleBack = useCallback(() => {
+    if (screen === "workout-detail" || screen === "create-workout") {
+      setScreen("program-detail");
+      return;
+    }
+    setScreen("main");
+  }, [screen]);
 
-  const updateProgram = (id: string, patch: Partial<MyProgram>) =>
+  useTelegramBack(handleBack, screen !== "main");
+
+  /* Mutations */
+  const updateProgram = (id: string, patch: Partial<Program>) =>
     setPrograms((prev) =>
       prev.map((p) => (p.id === id ? { ...p, ...patch } : p)),
     );
 
   const createProgram = () => {
     if (!npTitle.trim()) return;
-    const prog: MyProgram = {
+    const prog: Program = {
       id: uid(),
       title: npTitle.trim(),
       description: npDesc.trim() || "Описание программы",
@@ -549,7 +712,6 @@ export default function FitnessPage() {
       weeks: npWeeks,
       cover: COVERS[npCoverIdx],
       workouts: [],
-      schedule: [],
       forSale: false,
       priceStars: 99,
     };
@@ -565,7 +727,7 @@ export default function FitnessPage() {
 
   const createWorkout = () => {
     if (!wTitle.trim() || !activeProgramId) return;
-    const workout: Workout = {
+    const w: Workout = {
       id: uid(),
       title: wTitle.trim(),
       duration: wDuration || "30–45 мин",
@@ -574,7 +736,7 @@ export default function FitnessPage() {
       exercises: wExercises,
     };
     updateProgram(activeProgramId, {
-      workouts: [...(activeProgram?.workouts ?? []), workout],
+      workouts: [...(activeProgram?.workouts ?? []), w],
     });
     setWTitle("");
     setWDuration("");
@@ -585,8 +747,8 @@ export default function FitnessPage() {
 
   const addExToForm = () => {
     if (!wExName.trim()) return;
-    setWExercises((prev) => [
-      ...prev,
+    setWExercises((p) => [
+      ...p,
       {
         id: uid(),
         name: wExName.trim(),
@@ -601,17 +763,22 @@ export default function FitnessPage() {
 
   const addExToWorkout = () => {
     if (!editExName.trim() || !activeProgramId || !activeWorkoutId) return;
-    const ex: Exercise = {
-      id: uid(),
-      name: editExName.trim(),
-      sets: 3,
-      reps: "10–12",
-      rest: "60 сек",
-    };
     updateProgram(activeProgramId, {
       workouts: activeProgram!.workouts.map((w) =>
         w.id === activeWorkoutId
-          ? { ...w, exercises: [...w.exercises, ex] }
+          ? {
+              ...w,
+              exercises: [
+                ...w.exercises,
+                {
+                  id: uid(),
+                  name: editExName.trim(),
+                  sets: 3,
+                  reps: "10–12",
+                  rest: "60 сек",
+                },
+              ],
+            }
           : w,
       ),
     });
@@ -630,34 +797,19 @@ export default function FitnessPage() {
     });
   };
 
-  const assignToDay = (workoutId: string, programId: string) => {
-    setScheduleMap((prev) => ({
-      ...prev,
-      [selectedDate]: { workoutId, programId },
-    }));
-    setShowAssign(false);
-    triggerHaptic("medium");
-  };
-
-  const clearDay = () => {
-    setScheduleMap((prev) => {
-      const next = { ...prev };
-      delete next[selectedDate];
-      return next;
-    });
-  };
-
   const simulateAI = () => {
     if (!aiQuery.trim()) return;
     setAiLoading(true);
     setTimeout(() => {
-      const prog: MyProgram = {
+      const prog: Program = {
         id: uid(),
-        title: `AI: ${aiQuery.slice(0, 20)}`,
+        title: `AI: ${aiQuery.slice(0, 18)}`,
         description: aiQuery,
         level: "Средний",
         weeks: 4,
         cover: COVERS[Math.floor(Math.random() * COVERS.length)],
+        forSale: false,
+        priceStars: 0,
         workouts: [
           {
             id: uid(),
@@ -689,10 +841,24 @@ export default function FitnessPage() {
               },
             ],
           },
+          {
+            id: uid(),
+            title: "Тренировка B",
+            duration: "35–45 мин",
+            focus: "Кардио",
+            color: WORKOUT_COLORS[1],
+            exercises: [
+              { id: uid(), name: "Берпи", sets: 4, reps: "10", rest: "45 сек" },
+              {
+                id: uid(),
+                name: "Прыжки",
+                sets: 3,
+                reps: "20",
+                rest: "30 сек",
+              },
+            ],
+          },
         ],
-        schedule: [],
-        forSale: false,
-        priceStars: 0,
       };
       setPrograms((p) => [...p, prog]);
       setAiLoading(false);
@@ -703,30 +869,30 @@ export default function FitnessPage() {
     }, 1800);
   };
 
-  const goBack = () => {
-    if (screen === "workout-detail" || screen === "create-workout")
-      setScreen("program-detail");
-    else setScreen("main");
-  };
-
   /* ══════════════════════════════════════════════
      SCREEN: PROGRAM DETAIL
   ══════════════════════════════════════════════ */
   if (screen === "program-detail" && activeProgram)
     return (
       <div className="fitness-page">
-        <div className="screen-topbar">
-          <button className="btn-back" type="button" onClick={goBack}>
-            <ChevronLeft /> Назад
-          </button>
-        </div>
-
+        <PageHeader title={activeProgram.title} />
         <div className="prog-hero" style={{ background: activeProgram.cover }}>
-          <div>
+          <div className="prog-hero-inner">
             <div className="prog-hero-title">{activeProgram.title}</div>
             <div className="prog-hero-meta">
               {activeProgram.level} · {activeProgram.weeks} нед
             </div>
+          </div>
+          <div className="prog-hero-actions">
+            <button
+              className="prog-share-btn"
+              type="button"
+              onClick={() => {
+                shareProgram(activeProgram.title, activeProgram.id);
+              }}
+            >
+              <Icon.Share s={16} /> Поделиться
+            </button>
           </div>
         </div>
 
@@ -745,13 +911,13 @@ export default function FitnessPage() {
               triggerHaptic();
             }}
           >
-            <PlusIcon /> Добавить
+            <Icon.Plus /> Добавить
           </button>
         </div>
 
         {activeProgram.workouts.length === 0 ? (
           <div className="empty-state small">
-            <div className="empty-sub">Нет тренировок — добавь первую</div>
+            <div className="empty-sub">Добавь первую тренировку</div>
           </div>
         ) : (
           <div className="workout-list">
@@ -775,7 +941,7 @@ export default function FitnessPage() {
                       {wk.focus} · {wk.duration} · {wk.exercises.length} упр.
                     </div>
                   </div>
-                  <span className="workout-chevron">›</span>
+                  <Icon.ChevronRight s={18} />
                 </div>
                 {wk.exercises.length > 0 && (
                   <div className="workout-ex-preview">
@@ -791,12 +957,36 @@ export default function FitnessPage() {
                     )}
                   </div>
                 )}
+                <div className="workout-card-footer">
+                  <button
+                    className="btn-danger-sm"
+                    type="button"
+                    onClick={() => {
+                      updateProgram(activeProgram.id, {
+                        workouts: activeProgram.workouts.filter(
+                          (w) => w.id !== wk.id,
+                        ),
+                      });
+                      triggerHaptic();
+                    }}
+                  >
+                    <Icon.Trash s={13} /> Удалить
+                  </button>
+                  <button
+                    className="btn-share-sm"
+                    type="button"
+                    onClick={() => {
+                      shareProgram(wk.title, activeProgram.id);
+                    }}
+                  >
+                    <Icon.Share s={13} /> Поделиться
+                  </button>
+                </div>
               </div>
             ))}
           </div>
         )}
 
-        {/* Sell */}
         <div className="sell-section">
           <div className="sell-row">
             <div>
@@ -817,7 +1007,7 @@ export default function FitnessPage() {
             <div className="sell-fields">
               <div className="price-row">
                 <span className="price-star">
-                  <StarIcon size={14} />
+                  <Icon.Star s={14} />
                 </span>
                 <input
                   className="price-input"
@@ -857,189 +1047,12 @@ export default function FitnessPage() {
     );
 
   /* ══════════════════════════════════════════════
-     SCREEN: CREATE WORKOUT
-  ══════════════════════════════════════════════ */
-  if (screen === "create-workout" && activeProgram)
-    return (
-      <div className="fitness-page">
-        <div className="screen-topbar">
-          <button className="btn-back" type="button" onClick={goBack}>
-            <ChevronLeft /> Назад
-          </button>
-          <span className="screen-title">Новая тренировка</span>
-        </div>
-
-        <div className="form-block">
-          <label className="form-label">Название</label>
-          <input
-            className="form-input"
-            placeholder="День A — Жим"
-            value={wTitle}
-            onChange={(e) => setWTitle(e.target.value)}
-          />
-        </div>
-
-        <div className="form-block">
-          <label className="form-label">Длительность</label>
-          <input
-            className="form-input"
-            placeholder="45–60 мин"
-            value={wDuration}
-            onChange={(e) => setWDuration(e.target.value)}
-          />
-        </div>
-
-        <div className="form-block">
-          <label className="form-label">Акцент</label>
-          <div className="chip-row wrap">
-            {FOCUS_OPTIONS.map((f) => (
-              <button
-                key={f}
-                type="button"
-                className={`opt-chip ${wFocus === f ? "active" : ""}`}
-                onClick={() => {
-                  setWFocus(f);
-                  triggerHaptic();
-                }}
-              >
-                {f}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="form-block">
-          <label className="form-label">Цвет</label>
-          <div className="color-row">
-            {WORKOUT_COLORS.map((c, i) => (
-              <div
-                key={i}
-                className={`color-dot ${wColorIdx === i ? "active" : ""}`}
-                style={{ background: c }}
-                onClick={() => {
-                  setWColorIdx(i);
-                  triggerHaptic();
-                }}
-              />
-            ))}
-          </div>
-        </div>
-
-        <div className="section-row">
-          <h2>Упражнения</h2>
-          <span className="section-hint">{wExercises.length}</span>
-        </div>
-
-        {wExercises.length > 0 && (
-          <div className="exercise-list">
-            {wExercises.map((ex, idx) => (
-              <div className="exercise-card" key={ex.id}>
-                <div className="ex-idx">{idx + 1}</div>
-                <div className="ex-info">
-                  <div className="ex-name">{ex.name}</div>
-                  <div className="ex-chips">
-                    <span className="ex-chip">{ex.sets} подх.</span>
-                    <span className="ex-chip">{ex.reps}</span>
-                    <span className="ex-chip muted">{ex.rest}</span>
-                  </div>
-                </div>
-                <button
-                  className="btn-remove-ex"
-                  type="button"
-                  onClick={() => {
-                    setWExercises((p) => p.filter((e) => e.id !== ex.id));
-                    triggerHaptic();
-                  }}
-                >
-                  <TrashIcon />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-
-        <div className="add-ex-block">
-          <label className="form-label">Добавить упражнение</label>
-          <input
-            className="form-input"
-            placeholder="Название упражнения"
-            value={wExName}
-            onChange={(e) => setWExName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") addExToForm();
-            }}
-          />
-          <div className="ex-params-row">
-            <div className="ex-param-col">
-              <span className="ex-param-label">Подходы</span>
-              <div className="num-ctrl">
-                <button
-                  type="button"
-                  className="num-btn"
-                  onClick={() => setWExSets((s) => Math.max(1, s - 1))}
-                >
-                  −
-                </button>
-                <span className="num-val">{wExSets}</span>
-                <button
-                  type="button"
-                  className="num-btn"
-                  onClick={() => setWExSets((s) => Math.min(10, s + 1))}
-                >
-                  +
-                </button>
-              </div>
-            </div>
-            <div className="ex-param-col">
-              <span className="ex-param-label">Повторения</span>
-              <input
-                className="ex-param-input"
-                value={wExReps}
-                onChange={(e) => setWExReps(e.target.value)}
-              />
-            </div>
-            <div className="ex-param-col">
-              <span className="ex-param-label">Отдых</span>
-              <input
-                className="ex-param-input"
-                value={wExRest}
-                onChange={(e) => setWExRest(e.target.value)}
-              />
-            </div>
-          </div>
-          <button
-            className="btn-add-ex"
-            type="button"
-            onClick={addExToForm}
-            disabled={!wExName.trim()}
-          >
-            <PlusIcon size={15} /> Добавить
-          </button>
-        </div>
-
-        <button
-          className="btn-primary full-w"
-          type="button"
-          onClick={createWorkout}
-          disabled={!wTitle.trim()}
-        >
-          Сохранить тренировку
-        </button>
-      </div>
-    );
-
-  /* ══════════════════════════════════════════════
      SCREEN: WORKOUT DETAIL
   ══════════════════════════════════════════════ */
-  if (screen === "workout-detail" && activeWorkout)
+  if (screen === "workout-detail" && activeWorkout && activeProgram)
     return (
       <div className="fitness-page">
-        <div className="screen-topbar">
-          <button className="btn-back" type="button" onClick={goBack}>
-            <ChevronLeft /> Назад
-          </button>
-        </div>
-
+        <PageHeader title={activeWorkout.title} />
         <div
           className="workout-hero"
           style={{ borderLeft: `4px solid ${activeWorkout.color}` }}
@@ -1087,7 +1100,7 @@ export default function FitnessPage() {
                     triggerHaptic();
                   }}
                 >
-                  <TrashIcon />
+                  <Icon.Trash />
                 </button>
               </div>
             ))}
@@ -1111,7 +1124,7 @@ export default function FitnessPage() {
             onClick={addExToWorkout}
             disabled={!editExName.trim()}
           >
-            <PlusIcon size={15} /> Добавить
+            <Icon.Plus s={15} /> Добавить
           </button>
         </div>
       </div>
@@ -1123,13 +1136,7 @@ export default function FitnessPage() {
   if (screen === "create-program")
     return (
       <div className="fitness-page">
-        <div className="screen-topbar">
-          <button className="btn-back" type="button" onClick={goBack}>
-            <ChevronLeft /> Назад
-          </button>
-          <span className="screen-title">Новая программа</span>
-        </div>
-
+        <PageHeader title="Новая программа" />
         <div className="form-block">
           <label className="form-label">Название</label>
           <input
@@ -1139,7 +1146,6 @@ export default function FitnessPage() {
             onChange={(e) => setNpTitle(e.target.value)}
           />
         </div>
-
         <div className="form-block">
           <label className="form-label">Описание</label>
           <textarea
@@ -1150,7 +1156,6 @@ export default function FitnessPage() {
             onChange={(e) => setNpDesc(e.target.value)}
           />
         </div>
-
         <div className="form-block">
           <label className="form-label">Уровень</label>
           <div className="chip-row">
@@ -1169,7 +1174,6 @@ export default function FitnessPage() {
             ))}
           </div>
         </div>
-
         <div className="form-block">
           <label className="form-label">Недель</label>
           <div className="num-ctrl">
@@ -1192,7 +1196,6 @@ export default function FitnessPage() {
             </button>
           </div>
         </div>
-
         <div className="form-block">
           <label className="form-label">Обложка</label>
           <div className="cover-row">
@@ -1209,7 +1212,6 @@ export default function FitnessPage() {
             ))}
           </div>
         </div>
-
         <button
           className="btn-primary full-w"
           type="button"
@@ -1222,41 +1224,196 @@ export default function FitnessPage() {
     );
 
   /* ══════════════════════════════════════════════
-     SCREEN: AI TEXT
+     SCREEN: CREATE WORKOUT
   ══════════════════════════════════════════════ */
-  if (screen === "create-ai-text")
+  if (screen === "create-workout" && activeProgram)
     return (
       <div className="fitness-page">
-        <div className="screen-topbar">
-          <button className="btn-back" type="button" onClick={goBack}>
-            <ChevronLeft /> Назад
-          </button>
-          <span className="screen-title">AI по тексту</span>
+        <PageHeader title="Новая тренировка" />
+        <div className="form-block">
+          <label className="form-label">Название</label>
+          <input
+            className="form-input"
+            placeholder="День A — Жим"
+            value={wTitle}
+            onChange={(e) => setWTitle(e.target.value)}
+          />
+        </div>
+        <div className="form-block">
+          <label className="form-label">Длительность</label>
+          <input
+            className="form-input"
+            placeholder="45–60 мин"
+            value={wDuration}
+            onChange={(e) => setWDuration(e.target.value)}
+          />
+        </div>
+        <div className="form-block">
+          <label className="form-label">Акцент</label>
+          <div className="chip-row wrap">
+            {FOCUS_OPTIONS.map((f) => (
+              <button
+                key={f}
+                type="button"
+                className={`opt-chip ${wFocus === f ? "active" : ""}`}
+                onClick={() => {
+                  setWFocus(f);
+                  triggerHaptic();
+                }}
+              >
+                {f}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="form-block">
+          <label className="form-label">Цвет</label>
+          <div className="color-row">
+            {WORKOUT_COLORS.map((c, i) => (
+              <div
+                key={i}
+                className={`color-dot ${wColorIdx === i ? "active" : ""}`}
+                style={{ background: c }}
+                onClick={() => {
+                  setWColorIdx(i);
+                  triggerHaptic();
+                }}
+              />
+            ))}
+          </div>
         </div>
 
+        <div className="section-row">
+          <h2>Упражнения</h2>
+          <span className="section-hint">{wExercises.length}</span>
+        </div>
+
+        {wExercises.length > 0 && (
+          <div className="exercise-list">
+            {wExercises.map((ex, idx) => (
+              <div className="exercise-card" key={ex.id}>
+                <div className="ex-idx">{idx + 1}</div>
+                <div className="ex-info">
+                  <div className="ex-name">{ex.name}</div>
+                  <div className="ex-chips">
+                    <span className="ex-chip">{ex.sets} подх.</span>
+                    <span className="ex-chip">{ex.reps}</span>
+                    <span className="ex-chip muted">{ex.rest}</span>
+                  </div>
+                </div>
+                <button
+                  className="btn-remove-ex"
+                  type="button"
+                  onClick={() => {
+                    setWExercises((p) => p.filter((e) => e.id !== ex.id));
+                    triggerHaptic();
+                  }}
+                >
+                  <Icon.Trash />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="add-ex-block">
+          <label className="form-label">Добавить упражнение</label>
+          <input
+            className="form-input"
+            placeholder="Название упражнения"
+            value={wExName}
+            onChange={(e) => setWExName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") addExToForm();
+            }}
+          />
+          <div className="ex-params-row">
+            <div className="ex-param-col">
+              <span className="ex-param-label">Подходы</span>
+              <div className="num-ctrl sm">
+                <button
+                  type="button"
+                  className="num-btn"
+                  onClick={() => setWExSets((s) => Math.max(1, s - 1))}
+                >
+                  −
+                </button>
+                <span className="num-val">{wExSets}</span>
+                <button
+                  type="button"
+                  className="num-btn"
+                  onClick={() => setWExSets((s) => Math.min(10, s + 1))}
+                >
+                  +
+                </button>
+              </div>
+            </div>
+            <div className="ex-param-col">
+              <span className="ex-param-label">Повторения</span>
+              <input
+                className="ex-param-input"
+                value={wExReps}
+                onChange={(e) => setWExReps(e.target.value)}
+              />
+            </div>
+            <div className="ex-param-col">
+              <span className="ex-param-label">Отдых</span>
+              <input
+                className="ex-param-input"
+                value={wExRest}
+                onChange={(e) => setWExRest(e.target.value)}
+              />
+            </div>
+          </div>
+          <button
+            className="btn-add-ex"
+            type="button"
+            onClick={addExToForm}
+            disabled={!wExName.trim()}
+          >
+            <Icon.Plus s={15} /> Добавить
+          </button>
+        </div>
+
+        <button
+          className="btn-primary full-w"
+          type="button"
+          onClick={createWorkout}
+          disabled={!wTitle.trim()}
+        >
+          Сохранить тренировку
+        </button>
+      </div>
+    );
+
+  /* ══════════════════════════════════════════════
+     SCREEN: AI TEXT
+  ══════════════════════════════════════════════ */
+  if (screen === "ai-text")
+    return (
+      <div className="fitness-page">
+        <PageHeader title="AI по тексту" />
         <div className="ai-intro-card">
           <div className="ai-intro-icon">
-            <SparkleIcon />
+            <Icon.Sparkle />
           </div>
           <div className="ai-intro-text">
-            Опиши цель, уровень и предпочтения — AI сгенерирует программу
+            Опиши цель, уровень и предпочтения — AI составит программу
             тренировок
           </div>
         </div>
-
         <div className="form-block">
           <label className="form-label">Запрос</label>
           <textarea
             className="form-textarea big"
             rows={5}
             placeholder={
-              "Например:\n«Хочу похудеть, 3 тренировки в неделю, дома без инвентаря, уровень начальный»"
+              "Например:\n«Хочу похудеть, 3 тренировки в неделю,\nдома без инвентаря, начальный уровень»"
             }
             value={aiQuery}
             onChange={(e) => setAiQuery(e.target.value)}
           />
         </div>
-
         <div className="ai-examples">
           {[
             "Набор массы, зал, 4× в неделю",
@@ -1276,7 +1433,6 @@ export default function FitnessPage() {
             </button>
           ))}
         </div>
-
         <button
           className="btn-primary full-w ai-submit-btn"
           type="button"
@@ -1287,7 +1443,7 @@ export default function FitnessPage() {
             <span className="ai-loader" />
           ) : (
             <>
-              <SparkleIcon /> Сгенерировать
+              <Icon.Sparkle s={16} /> Сгенерировать
             </>
           )}
         </button>
@@ -1297,23 +1453,17 @@ export default function FitnessPage() {
   /* ══════════════════════════════════════════════
      SCREEN: AI PHOTO
   ══════════════════════════════════════════════ */
-  if (screen === "create-ai-photo")
+  if (screen === "ai-photo")
     return (
       <div className="fitness-page">
-        <div className="screen-topbar">
-          <button className="btn-back" type="button" onClick={goBack}>
-            <ChevronLeft /> Назад
-          </button>
-          <span className="screen-title">AI по фото</span>
-        </div>
-
+        <PageHeader title="AI по фото" />
         <div className="photo-upload-area">
           <div className="photo-upload-icon">
-            <CameraIcon />
+            <Icon.Camera />
           </div>
           <div className="photo-upload-title">Загрузи фото тела</div>
           <div className="photo-upload-sub">
-            AI проанализирует состав тела и составит программу
+            AI проанализирует состав и составит программу
           </div>
           <button
             className="btn-primary"
@@ -1324,33 +1474,48 @@ export default function FitnessPage() {
             Выбрать фото
           </button>
         </div>
-
-        <div className="photo-hint-list">
-          {[
-            "Фото в полный рост, хорошее освещение",
-            "Нейтральная поза, лицом или боком",
-            "Без лишней одежды для точного анализа",
-          ].map((h) => (
-            <div key={h} className="photo-hint-item">
-              <span className="photo-hint-dot" />
-              <span>{h}</span>
-            </div>
-          ))}
-        </div>
+        {[
+          ["🔆", "Хорошее освещение, фото в полный рост"],
+          ["🧍", "Нейтральная поза, лицом или боком"],
+          ["👕", "Минимум одежды для точного анализа"],
+        ].map(([ic, t]) => (
+          <div key={t as string} className="photo-hint-item">
+            <span className="photo-hint-emoji">{ic}</span>
+            <span>{t}</span>
+          </div>
+        ))}
       </div>
     );
 
   /* ══════════════════════════════════════════════
      SCREEN: MAIN
   ══════════════════════════════════════════════ */
+
+  // Week schedule derived data
+  const weekWithWorkouts = weekDates.map((d, i) => {
+    const ds = fmt(d);
+    const entry = scheduleMap[ds];
+    const workout = entry
+      ? (allWorkouts.find((w) => w.id === entry.workoutId) ?? null)
+      : null;
+    return {
+      date: d,
+      dateStr: ds,
+      dayName: DAYS_RU[i],
+      workout,
+      isToday: isToday(d),
+    };
+  });
+
+  const hasAnySchedule = weekWithWorkouts.some((d) => d.workout);
+
   return (
     <div className="fitness-page">
-      {/* Header */}
+      {/* ── MAIN TAB SWITCH ── */}
       <div className="fitness-header">
         <h1>Тренировки</h1>
       </div>
 
-      {/* Main tab switch */}
       <div className="fitness-switch">
         <div className="fitness-pill">
           <div
@@ -1384,22 +1549,21 @@ export default function FitnessPage() {
       ════════════════════════════════ */}
       {mainTab === "personal" && (
         <>
-          {/* Goal card */}
-          <div className="goal-card">
+          {/* Goal */}
+          <div
+            className="goal-card"
+            onClick={() => {
+              setShowGoalEdit((v) => !v);
+              triggerHaptic();
+            }}
+          >
             <div className="goal-card-left">
-              <div className="goal-label">Цель</div>
+              <div className="goal-label">Твоя цель</div>
               <div className="goal-value">{goal}</div>
             </div>
-            <button
-              className="goal-edit-btn"
-              type="button"
-              onClick={() => {
-                setShowGoalEdit(!showGoalEdit);
-                triggerHaptic();
-              }}
-            >
-              Изменить
-            </button>
+            <div className={`goal-chevron ${showGoalEdit ? "open" : ""}`}>
+              <Icon.ChevronRight s={18} />
+            </div>
           </div>
 
           {showGoalEdit && (
@@ -1415,13 +1579,13 @@ export default function FitnessPage() {
                     triggerHaptic();
                   }}
                 >
-                  {g}
+                  {goal === g && <Icon.Check s={14} />} {g}
                 </button>
               ))}
             </div>
           )}
 
-          {/* Create workout section */}
+          {/* Create workout */}
           <div className="section-row" style={{ marginTop: 28 }}>
             <h2>Создать тренировку</h2>
           </div>
@@ -1431,32 +1595,32 @@ export default function FitnessPage() {
               className="create-card ai-text-card"
               type="button"
               onClick={() => {
-                setScreen("create-ai-text");
+                setScreen("ai-text");
                 triggerHaptic("medium");
               }}
             >
               <div className="create-card-icon">
-                <SparkleIcon />
+                <Icon.Sparkle />
               </div>
-              <div className="create-card-title">AI по тексту</div>
-              <div className="create-card-sub">Опиши цель — получи план</div>
+              <div className="create-card-content">
+                <div className="create-card-title">AI по тексту</div>
+                <div className="create-card-sub">Опиши цель — получи план</div>
+              </div>
             </button>
-
             <button
               className="create-card ai-photo-card"
               type="button"
               onClick={() => {
-                setScreen("create-ai-photo");
+                setScreen("ai-photo");
                 triggerHaptic("medium");
               }}
             >
               <div className="create-card-icon">
-                <CameraIcon />
+                <Icon.Camera />
               </div>
               <div className="create-card-title">AI по фото</div>
               <div className="create-card-sub">Анализ состава тела</div>
             </button>
-
             <button
               className="create-card manual-card"
               type="button"
@@ -1470,205 +1634,167 @@ export default function FitnessPage() {
               }}
             >
               <div className="create-card-icon">
-                <PencilIcon />
+                <Icon.Pencil />
               </div>
               <div className="create-card-title">Вручную</div>
               <div className="create-card-sub">Своя программа с нуля</div>
             </button>
           </div>
 
-          {/* Schedule */}
-          <div className="section-row" style={{ marginTop: 32 }}>
+          {/* ════ SCHEDULE SECTION ════ */}
+          <div className="section-row" style={{ marginTop: 36 }}>
             <h2>Расписание</h2>
-            <div className="week-nav">
-              <button
-                className="week-nav-btn"
-                type="button"
-                onClick={() => {
-                  setWeekOffset((o) => o - 1);
-                  triggerHaptic();
-                }}
-              >
-                ‹
-              </button>
-              <span className="week-nav-label">
-                {weekOffset === 0
-                  ? "Эта неделя"
-                  : weekOffset === 1
-                    ? "След. неделя"
-                    : weekOffset === -1
-                      ? "Пред. неделя"
-                      : `${weekOffset > 0 ? "+" : ""}${weekOffset} нед`}
-              </span>
-              <button
-                className="week-nav-btn"
-                type="button"
-                onClick={() => {
-                  setWeekOffset((o) => o + 1);
-                  triggerHaptic();
-                }}
-              >
-                ›
-              </button>
-            </div>
-          </div>
-
-          {/* Week strip */}
-          <div className="week-strip">
-            {weekDates.map((d, i) => {
-              const dateStr = fmtDate(d);
-              const hasWorkout = !!scheduleMap[dateStr];
-              const isSelected = dateStr === selectedDate;
-              const todayFlag = isToday(d);
-              return (
-                <div
-                  key={i}
-                  className={`day-col ${isSelected ? "selected" : ""} ${todayFlag ? "today" : ""}`}
-                  onClick={() => {
-                    setSelectedDate(dateStr);
-                    triggerHaptic();
-                  }}
-                >
-                  <span className="day-col-name">{DAYS_SHORT[i]}</span>
-                  <span className="day-col-num">{d.getDate()}</span>
-                  {hasWorkout && (
-                    <span
-                      className="day-dot"
-                      style={{
-                        background: scheduleMap[dateStr]
-                          ? (programs
-                              .find(
-                                (p) => p.id === scheduleMap[dateStr].programId,
-                              )
-                              ?.workouts.find(
-                                (w) => w.id === scheduleMap[dateStr].workoutId,
-                              )?.color ?? "#000")
-                          : "#000",
-                      }}
-                    />
-                  )}
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Selected day detail */}
-          <div className="day-detail">
-            <div className="day-detail-header">
-              <div className="day-detail-date">
-                {new Date(selectedDate + "T12:00:00").toLocaleDateString("ru", {
-                  weekday: "long",
-                  day: "numeric",
-                  month: "long",
-                })}
-              </div>
-              {selectedDayWorkout && (
+            <div className="schedule-header-right">
+              <div className="week-nav">
                 <button
-                  className="btn-ghost-sm"
+                  className="week-nav-btn"
                   type="button"
                   onClick={() => {
-                    clearDay();
+                    setWeekOffset((o) => o - 1);
                     triggerHaptic();
                   }}
                 >
-                  Убрать
+                  ‹
                 </button>
-              )}
-            </div>
-
-            {selectedDayWorkout ? (
-              <div
-                className="day-workout-card"
-                style={{ borderLeft: `4px solid ${selectedDayWorkout.color}` }}
+                <span className="week-nav-label">
+                  {weekOffset === 0
+                    ? "Эта неделя"
+                    : weekOffset === 1
+                      ? "След. неделя"
+                      : weekOffset === -1
+                        ? "Пред. неделя"
+                        : `${weekOffset > 0 ? "+" : ""}${weekOffset} нед`}
+                </span>
+                <button
+                  className="week-nav-btn"
+                  type="button"
+                  onClick={() => {
+                    setWeekOffset((o) => o + 1);
+                    triggerHaptic();
+                  }}
+                >
+                  ›
+                </button>
+              </div>
+              <button
+                className="btn-edit-schedule"
+                type="button"
+                onClick={() => {
+                  setShowScheduleEditor(true);
+                  triggerHaptic();
+                }}
               >
-                <div className="day-workout-title">
-                  {selectedDayWorkout.title}
-                </div>
-                <div className="day-workout-meta">
-                  {selectedDayWorkout.focus} · {selectedDayWorkout.duration} ·{" "}
-                  {selectedDayWorkout.exercises.length} упр.
-                </div>
-                {selectedDayWorkout.exercises.length > 0 && (
-                  <div className="day-workout-exercises">
-                    {selectedDayWorkout.exercises.map((ex) => (
-                      <div key={ex.id} className="day-ex-row">
-                        <span className="day-ex-name">{ex.name}</span>
-                        <span className="day-ex-sets">
-                          {ex.sets}×{ex.reps}
-                        </span>
-                      </div>
-                    ))}
+                Изменить
+              </button>
+            </div>
+          </div>
+
+          {/* Week overview strip */}
+          <div className="week-overview">
+            {weekWithWorkouts.map(
+              ({ date, dateStr, dayName, workout, isToday: tod }) => (
+                <div
+                  key={dateStr}
+                  className={`week-day-card ${workout ? "has-workout" : "rest"} ${tod ? "today" : ""}`}
+                  onClick={() => {
+                    setShowScheduleEditor(true);
+                    triggerHaptic();
+                  }}
+                >
+                  <div className="week-day-name">{dayName}</div>
+                  <div className={`week-day-num ${tod ? "today-num" : ""}`}>
+                    {date.getDate()}
                   </div>
-                )}
-              </div>
-            ) : (
-              <div className="day-empty">
-                <div className="day-empty-label">Тренировка не назначена</div>
-                {allWorkoutsFlat.length > 0 && (
-                  <button
-                    className="btn-assign"
-                    type="button"
-                    onClick={() => {
-                      setShowAssign(true);
-                      triggerHaptic();
-                    }}
-                  >
-                    <PlusIcon size={15} /> Назначить тренировку
-                  </button>
-                )}
-                {allWorkoutsFlat.length === 0 && (
-                  <button
-                    className="btn-assign"
-                    type="button"
-                    onClick={() => {
-                      setScreen("create-ai-text");
-                      triggerHaptic("medium");
-                    }}
-                  >
-                    <PlusIcon size={15} /> Создать тренировку
-                  </button>
-                )}
-              </div>
+                  {workout ? (
+                    <div
+                      className="week-day-workout-pill"
+                      style={{ background: workout.color }}
+                    >
+                      <span className="week-day-workout-name">
+                        {workout.title.split(" — ")[0]}
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="week-day-rest">отдых</div>
+                  )}
+                </div>
+              ),
             )}
           </div>
 
-          {/* Assign workout bottom sheet */}
-          {showAssign && (
-            <div className="sheet-overlay-wrap">
-              <div
-                className="sheet-overlay"
-                onClick={() => setShowAssign(false)}
-              />
-              <div className="bottom-sheet">
-                <div className="bottom-sheet-handle" />
-                <div className="bottom-sheet-body">
-                  <div className="sheet-title" style={{ marginBottom: 16 }}>
-                    Выбери тренировку
-                  </div>
-                  <div className="assign-list">
-                    {allWorkoutsFlat.map((w) => (
-                      <div
-                        key={w.id}
-                        className="assign-item"
-                        onClick={() => {
-                          assignToDay(w.id, w.programId);
-                        }}
-                      >
-                        <div
-                          className="assign-dot"
-                          style={{ background: w.color }}
-                        />
-                        <div>
-                          <div className="assign-title">{w.title}</div>
-                          <div className="assign-meta">
-                            {w.programTitle} · {w.duration}
-                          </div>
-                        </div>
-                        <span className="workout-chevron">›</span>
+          {/* Detailed list of scheduled days */}
+          {hasAnySchedule && (
+            <div className="schedule-detail-list">
+              {weekWithWorkouts
+                .filter((d) => d.workout)
+                .map(({ date, dateStr, dayName, workout }) => (
+                  <div key={dateStr} className="schedule-detail-item">
+                    <div className="sched-item-left">
+                      <div className="sched-item-day">
+                        {dayName}, {date.getDate()}
                       </div>
-                    ))}
+                      <div
+                        className="sched-item-workout"
+                        style={{ borderLeft: `3px solid ${workout!.color}` }}
+                      >
+                        <div className="sched-item-workout-name">
+                          {workout!.title}
+                        </div>
+                        <div className="sched-item-workout-meta">
+                          {workout!.focus} · {workout!.duration} ·{" "}
+                          {workout!.exercises.length} упр.
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      className="sched-item-remove"
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setScheduleMap((prev) => {
+                          const n = { ...prev };
+                          delete n[dateStr];
+                          return n;
+                        });
+                        triggerHaptic();
+                      }}
+                    >
+                      <Icon.X s={14} />
+                    </button>
                   </div>
-                </div>
+                ))}
+
+              {/* Clear week button */}
+              <button
+                className="btn-clear-week"
+                type="button"
+                onClick={() => {
+                  const weekStrs = new Set(weekDates.map(fmt));
+                  setScheduleMap((prev) =>
+                    Object.fromEntries(
+                      Object.entries(prev).filter(([k]) => !weekStrs.has(k)),
+                    ),
+                  );
+                  triggerHaptic("medium");
+                }}
+              >
+                Очистить всю неделю
+              </button>
+            </div>
+          )}
+
+          {!hasAnySchedule && allWorkouts.length > 0 && (
+            <div className="sched-empty-hint">
+              <div className="sched-empty-hint-text">
+                Нажми «Изменить» чтобы назначить тренировки на дни
+              </div>
+            </div>
+          )}
+
+          {allWorkouts.length === 0 && (
+            <div className="sched-empty-hint">
+              <div className="sched-empty-hint-text">
+                Сначала создай программу с тренировками
               </div>
             </div>
           )}
@@ -1680,7 +1806,6 @@ export default function FitnessPage() {
       ════════════════════════════════ */}
       {mainTab === "catalog" && (
         <>
-          {/* Sub-switch */}
           <div className="sub-switch">
             <button
               className={`sub-tab ${catSubTab === "catalog" ? "active" : ""}`}
@@ -1707,7 +1832,6 @@ export default function FitnessPage() {
             </button>
           </div>
 
-          {/* Sub-tab: Каталог */}
           {catSubTab === "catalog" && (
             <>
               <div className="catalog-filters">
@@ -1726,7 +1850,12 @@ export default function FitnessPage() {
                 ))}
               </div>
               <div className="catalog-grid">
-                {filteredCatalog.map((item) => (
+                {(catFilter === "free"
+                  ? CATALOG_ITEMS.filter((c) => !c.isPaid)
+                  : catFilter === "paid"
+                    ? CATALOG_ITEMS.filter((c) => c.isPaid)
+                    : CATALOG_ITEMS
+                ).map((item) => (
                   <div
                     key={item.id}
                     className="catalog-card"
@@ -1741,7 +1870,7 @@ export default function FitnessPage() {
                     >
                       {item.isPaid ? (
                         <div className="catalog-price">
-                          <StarIcon /> {item.priceStars}
+                          <Icon.Star /> {item.priceStars}
                         </div>
                       ) : (
                         <div className="catalog-price free">Бесплатно</div>
@@ -1764,93 +1893,105 @@ export default function FitnessPage() {
             </>
           )}
 
-          {/* Sub-tab: Мои программы */}
-          {catSubTab === "mine" && (
-            <>
-              {programs.length === 0 ? (
-                <div className="empty-state">
-                  <div className="empty-icon">📋</div>
-                  <div className="empty-title">Нет программ</div>
-                  <div className="empty-sub">
-                    Создай свою или добавь из каталога
-                  </div>
-                  <button
-                    className="btn-primary"
-                    type="button"
-                    style={{ marginTop: 20 }}
+          {catSubTab === "mine" &&
+            (programs.length === 0 ? (
+              <div className="empty-state">
+                <div className="empty-icon">📋</div>
+                <div className="empty-title">Нет программ</div>
+                <div className="empty-sub">
+                  Создай свою или добавь из каталога
+                </div>
+                <button
+                  className="btn-primary"
+                  type="button"
+                  style={{ marginTop: 20 }}
+                  onClick={() => {
+                    setMainTab("personal");
+                    triggerHaptic("medium");
+                  }}
+                >
+                  Создать программу
+                </button>
+              </div>
+            ) : (
+              <div className="program-list">
+                {programs.map((prog) => (
+                  <div
+                    className="program-card"
+                    key={prog.id}
                     onClick={() => {
-                      setMainTab("personal");
-                      triggerHaptic("medium");
+                      setActiveProgramId(prog.id);
+                      setScreen("program-detail");
+                      triggerHaptic();
                     }}
                   >
-                    Перейти к созданию
-                  </button>
-                </div>
-              ) : (
-                <div className="program-list">
-                  {programs.map((prog) => (
                     <div
-                      className="program-card"
-                      key={prog.id}
-                      onClick={() => {
-                        setActiveProgramId(prog.id);
-                        setScreen("program-detail");
-                        triggerHaptic();
-                      }}
+                      className="program-card-cover"
+                      style={{ background: prog.cover }}
                     >
-                      <div
-                        className="program-card-cover"
-                        style={{ background: prog.cover }}
-                      >
+                      <div className="program-card-cover-actions">
                         {prog.forSale && (
                           <div className="program-sale-badge">
-                            <StarIcon size={11} /> {prog.priceStars}
+                            <Icon.Star s={11} /> {prog.priceStars}
                           </div>
                         )}
-                      </div>
-                      <div className="program-card-body">
-                        <div className="program-card-title">{prog.title}</div>
-                        <div className="program-card-meta">
-                          {prog.level} · {prog.weeks} нед
-                        </div>
-                        <div className="program-card-stats">
-                          <span className="prog-stat">
-                            {prog.workouts.length} тренировок
-                          </span>
-                          {prog.forSale && (
-                            <span className="prog-stat sale">В продаже</span>
-                          )}
-                        </div>
+                        <button
+                          className="program-share-icon"
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            shareProgram(prog.title, prog.id);
+                          }}
+                        >
+                          <Icon.Share s={14} />
+                        </button>
                       </div>
                     </div>
-                  ))}
-                  <button
-                    className="btn-create-prog"
-                    type="button"
-                    onClick={() => {
-                      setNpTitle("");
-                      setNpDesc("");
-                      setNpWeeks(4);
-                      setNpCoverIdx(0);
-                      setScreen("create-program");
-                      triggerHaptic("medium");
-                    }}
-                  >
-                    <PlusIcon /> Создать программу
-                  </button>
-                </div>
-              )}
-            </>
-          )}
+                    <div className="program-card-body">
+                      <div className="program-card-title">{prog.title}</div>
+                      <div className="program-card-meta">
+                        {prog.level} · {prog.weeks} нед · {prog.workouts.length}{" "}
+                        тренировок
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                <button
+                  className="btn-create-prog"
+                  type="button"
+                  onClick={() => {
+                    setNpTitle("");
+                    setNpDesc("");
+                    setNpWeeks(4);
+                    setNpCoverIdx(0);
+                    setScreen("create-program");
+                    triggerHaptic("medium");
+                  }}
+                >
+                  <Icon.Plus /> Создать программу
+                </button>
+              </div>
+            ))}
         </>
       )}
 
-      {/* Catalog bottom sheet */}
+      {/* ── SCHEDULE EDITOR ── */}
+      {showScheduleEditor && (
+        <ScheduleEditor
+          allWorkouts={allWorkouts}
+          weekDates={weekDates}
+          scheduleMap={scheduleMap}
+          onApply={setScheduleMap}
+          onClose={() => setShowScheduleEditor(false)}
+        />
+      )}
+
+      {/* ── CATALOG BOTTOM SHEET ── */}
       {catalogItem && (
         <div className="sheet-overlay-wrap">
           <div className="sheet-overlay" onClick={() => setCatalogItem(null)} />
           <div className="bottom-sheet">
-            <div className="bottom-sheet-handle" />
+            <div className="sheet-handle-bar" />
             <div
               className="bottom-sheet-cover-img"
               style={{ background: catalogItem.cover }}
@@ -1875,7 +2016,7 @@ export default function FitnessPage() {
                   catalogItem.duration,
                   catalogItem.focus,
                   catalogItem.equipment,
-                ].map((t) => (
+                ].map((t: string) => (
                   <span key={t} className="sheet-chip">
                     {t}
                   </span>
@@ -1887,7 +2028,7 @@ export default function FitnessPage() {
                 {(purchasedIds.includes(catalogItem.id) || !catalogItem.isPaid
                   ? catalogItem.items
                   : catalogItem.items.slice(0, 2)
-                ).map((line, i) => (
+                ).map((line: string, i: number) => (
                   <li key={i}>{line}</li>
                 ))}
                 {catalogItem.isPaid &&
@@ -1921,7 +2062,7 @@ export default function FitnessPage() {
                     className="btn-primary full-w"
                     type="button"
                     onClick={() => {
-                      const prog: MyProgram = {
+                      const prog: Program = {
                         id: uid(),
                         title: catalogItem.title,
                         description: catalogItem.description,
@@ -1929,20 +2070,16 @@ export default function FitnessPage() {
                         weeks: 6,
                         cover: catalogItem.cover,
                         workouts: [],
-                        schedule: [],
                         forSale: false,
                         priceStars: 0,
                       };
                       setPrograms((p) => [...p, prog]);
-                      setSavedIds((s) => [...s, catalogItem.id]);
                       setCatalogItem(null);
                       setCatSubTab("mine");
                       triggerHaptic("medium");
                     }}
                   >
-                    {savedIds.includes(catalogItem.id)
-                      ? "Добавлено ✓"
-                      : "Добавить в мои"}
+                    Добавить в мои
                   </button>
                 )}
               </div>
@@ -1953,3 +2090,119 @@ export default function FitnessPage() {
     </div>
   );
 }
+
+/* ── CATALOG DATA ── */
+const CATALOG_ITEMS: CatalogItem[] = [
+  {
+    id: "c1",
+    title: "Сушка 6 недель",
+    author: "Coach Vera",
+    level: "Продвинутый",
+    duration: "50–70 мин",
+    focus: "Рельеф",
+    equipment: "Зал",
+    isPaid: true,
+    priceStars: 120,
+    cover: "linear-gradient(140deg,#0f0f0f,#2a2a2a)",
+    description:
+      "Программа с прогрессией нагрузки и контролем объёмов. 4 тренировки в неделю.",
+    items: [
+      "Разминка 10 мин",
+      "Силовой блок 40 мин",
+      "HIIT финишер 10 мин",
+      "Заминка 10 мин",
+    ],
+  },
+  {
+    id: "c2",
+    title: "Тонус дома",
+    author: "Fit Home Lab",
+    level: "Начальный",
+    duration: "25–35 мин",
+    focus: "Тонус",
+    equipment: "Без инвентаря",
+    isPaid: false,
+    priceStars: 0,
+    cover: "linear-gradient(140deg,#1666b0,#4a9de0)",
+    description: "Мягкий вход в тренировки: короткие сессии, без прыжков.",
+    items: [
+      "Разминка 5 мин",
+      "Низ тела 15 мин",
+      "Корпус 10 мин",
+      "Растяжка 5 мин",
+    ],
+  },
+  {
+    id: "c3",
+    title: "Сила + Кардио",
+    author: "Urban Gym",
+    level: "Средний",
+    duration: "40–55 мин",
+    focus: "Выносливость",
+    equipment: "Гантели",
+    isPaid: true,
+    priceStars: 80,
+    cover: "linear-gradient(140deg,#101010,#606060)",
+    description:
+      "Чередование силовых и кардио блоков для стабильного прогресса.",
+    items: [
+      "Разминка 8 мин",
+      "Силовой блок 20 мин",
+      "Кардио блок 15 мин",
+      "Заминка 5 мин",
+    ],
+  },
+  {
+    id: "c4",
+    title: "Здоровая спина",
+    author: "Balance Studio",
+    level: "Начальный",
+    duration: "30–40 мин",
+    focus: "Осанка",
+    equipment: "Коврик",
+    isPaid: false,
+    priceStars: 0,
+    cover: "linear-gradient(140deg,#0d5c4a,#2a9d7a)",
+    description:
+      "Укрепление кора и раскрытие грудного отдела для офисного ритма.",
+    items: [
+      "Разогрев 6 мин",
+      "Кор 14 мин",
+      "Мобильность 12 мин",
+      "Дыхание 5 мин",
+    ],
+  },
+  {
+    id: "c5",
+    title: "HIIT 20 мин",
+    author: "Fast Lab",
+    level: "Средний",
+    duration: "20 мин",
+    focus: "Жиросжигание",
+    equipment: "Без инвентаря",
+    isPaid: false,
+    priceStars: 0,
+    cover: "linear-gradient(140deg,#2a0d0d,#8b2020)",
+    description: "Интенсивные 20 минут: 8 кругов по 4 упражнения.",
+    items: ["Разминка 3 мин", "8 кругов HIIT", "Заминка 3 мин"],
+  },
+  {
+    id: "c6",
+    title: "Пилатес PRO",
+    author: "Studio Move",
+    level: "Средний",
+    duration: "45 мин",
+    focus: "Мобильность",
+    equipment: "Коврик",
+    isPaid: true,
+    priceStars: 60,
+    cover: "linear-gradient(140deg,#1a0a2e,#5a2d82)",
+    description:
+      "Пилатес с фокусом на глубокий кор, осанку и подвижность суставов.",
+    items: [
+      "Активация кора 10 мин",
+      "Основной блок 25 мин",
+      "Стретчинг 10 мин",
+    ],
+  },
+];

@@ -27,6 +27,8 @@ export interface TelegramWebApp {
   themeParams?: TelegramThemeParams;
   headerColor?: string;
   setHeaderColor?: (color: string) => void;
+  openTelegramLink?: (url: string) => void;
+  showAlert?: (message: string) => void;
   expand: () => void;
   ready: () => void;
   BackButton?: TelegramBackButton;

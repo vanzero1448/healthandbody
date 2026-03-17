@@ -126,14 +126,6 @@ function RadialProgress({
           cy={size / 2}
           r={r}
           fill="none"
-          stroke="var(--track)"
-          strokeWidth={strokeWidth}
-        />
-        <circle
-          cx={size / 2}
-          cy={size / 2}
-          r={r}
-          fill="none"
           stroke={color}
           strokeWidth={strokeWidth}
           strokeLinecap="round"
@@ -162,14 +154,6 @@ function CalorieRing({ consumed, goal }: { consumed: number; goal: number }) {
   return (
     <div className="calorie-hero-wrap">
       <svg viewBox={`0 0 ${size} ${size}`} className="radial-svg">
-        <circle
-          cx={size / 2}
-          cy={size / 2}
-          r={r}
-          fill="none"
-          stroke="var(--track)"
-          strokeWidth={sw}
-        />
         <circle
           cx={size / 2}
           cy={size / 2}
@@ -430,7 +414,7 @@ export default function FoodPage({ onOpenProfile }: FoodPageProps) {
 
           return (
             <div
-              className={`counter-item card ${isWater ? "water-card" : ""}`}
+              className={`counter-item card counter-${c.id}`}
               key={c.id}
             >
               {isWater && (
