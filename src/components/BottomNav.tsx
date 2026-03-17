@@ -72,6 +72,17 @@ export function BottomNav({
   const [plusOpen, setPlusOpen] = useState(false);
   const pillRef = useRef<HTMLDivElement>(null);
 
+  const spawnRipple = (cx: number, cy: number) => {
+    if (!pillRef.current) return;
+    const rect = pillRef.current.getBoundingClientRect();
+    const el = document.createElement("div");
+    el.className = "nav-ripple";
+    el.style.left = `${cx - rect.left}px`;
+    el.style.top = `${cy - rect.top}px`;
+    pillRef.current.appendChild(el);
+    setTimeout(() => el.remove(), 600);
+  };
+
   const handleTabClick = useCallback(
     (tab: TabId, e: React.MouseEvent) => {
       if (tab === activeTab) return;
@@ -87,17 +98,6 @@ export function BottomNav({
     },
     [activeTab, setActiveTab],
   );
-
-  const spawnRipple = (cx: number, cy: number) => {
-    if (!pillRef.current) return;
-    const rect = pillRef.current.getBoundingClientRect();
-    const el = document.createElement("div");
-    el.className = "nav-ripple";
-    el.style.left = `${cx - rect.left}px`;
-    el.style.top = `${cy - rect.top}px`;
-    pillRef.current.appendChild(el);
-    setTimeout(() => el.remove(), 600);
-  };
 
   const activeIdx = TABS.findIndex((t) => t.id === activeTab);
 

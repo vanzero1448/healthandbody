@@ -1,14 +1,12 @@
 import { useState } from "react";
+import { getTelegramWebApp } from "../telegram";
+import type { TelegramHapticStyle } from "../telegram";
 import "./FoodPage.css";
 
-const triggerHaptic = (
-  style: "light" | "medium" | "heavy" | "soft" | "rigid" = "light",
-) => {
-  if (
-    typeof window !== "undefined" &&
-    (window as any).Telegram?.WebApp?.HapticFeedback
-  ) {
-    (window as any).Telegram.WebApp.HapticFeedback.impactOccurred(style);
+const triggerHaptic = (style: TelegramHapticStyle = "light") => {
+  const tg = getTelegramWebApp();
+  if (tg?.HapticFeedback) {
+    tg.HapticFeedback.impactOccurred(style);
   } else if (navigator.vibrate) {
     navigator.vibrate(10);
   }
@@ -100,7 +98,19 @@ const COUNTERS = [
   },
 ];
 
-function RadialProgress({ value, goal, color, strokeWidth = 8 }: any) {
+interface RadialProgressProps {
+  value: number;
+  goal: number;
+  color: string;
+  strokeWidth?: number;
+}
+
+function RadialProgress({
+  value,
+  goal,
+  color,
+  strokeWidth = 8,
+}: RadialProgressProps) {
   const size = 100;
   const r = (size - strokeWidth) / 2;
   const circ = 2 * Math.PI * r;

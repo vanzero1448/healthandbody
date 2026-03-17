@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { getTelegramWebApp } from "./telegram";
 
 /**
  * Читает safe area insets из Telegram WebApp API
@@ -15,7 +16,7 @@ import { useEffect } from "react";
  */
 export function useTelegramSafeArea() {
   useEffect(() => {
-    const tg = (window as any).Telegram?.WebApp;
+    const tg = getTelegramWebApp();
     const root = document.documentElement;
 
     function applyInsets() {

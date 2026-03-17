@@ -4,71 +4,58 @@ import { BottomNav } from "./components/BottomNav";
 import FoodPage from "./pages/FoodPage";
 import ProfilePage from "./pages/ProfilePage";
 import { useTelegramSafeArea } from "./useTelegramSafeArea";
+import { getTelegramWebApp } from "./telegram";
 import "./App.css";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState("food");
   const [isProfileOpen, setIsProfileOpen] = useState(false);
-  const [hasTgBack, setHasTgBack] = useState(false);
+  const hasTgBack = Boolean(getTelegramWebApp()?.BackButton);
+
+  useTelegramSafeArea();
 
   // Telegram WebApp initialization
   useEffect(() => {
-    const tg = (window as any).Telegram?.WebApp;
-    if (tg && !tg.initDataUnsafe) return; // Only in TWA context
+    const tg = getTelegramWebApp();
+    if (!tg) return;
+    if (!tg.initDataUnsafe) return; // Only in TWA context
 
     tg.expand(); // Full viewport height
     tg.ready(); // Signal ready to Telegram
 
-    export default function App() {
-      useTelegramSafeArea(); // ← одна строка
-      // ...
-    }
-
     // Sync Telegram theme to CSS vars
-    if (tg.themeParams) {
-      const root = document.documentElement;
-      root.style.setProperty("--bg", tg.themeParams.bg_color || "#ffffff");
-      root.style.setProperty(
-        "--text-h",
-        tg.themeParams.text_color || "#000000",
-      );
-      root.style.setProperty("--text", tg.themeParams.hint_color || "#666666");
-      root.style.setProperty(
-        "--border",
-        tg.themeParams.accent_text_color || "#000000",
-      );
+    const root = document.documentElement;
+    const theme = tg.themeParams;
+    if (theme) {
+      root.style.setProperty("--bg", theme.bg_color || "#ffffff");
+      root.style.setProperty("--text-h", theme.text_color || "#000000");
+      root.style.setProperty("--text", theme.hint_color || "#666666");
+      root.style.setProperty("--border", theme.accent_text_color || "#000000");
       root.style.setProperty(
         "--card-bg",
-        tg.themeParams.secondary_bg_color || "#f8f8f8",
+        theme.secondary_bg_color || "#f8f8f8",
       );
       root.style.setProperty(
         "--social-bg",
-        tg.themeParams.secondary_bg_color || "#f3f3f3",
+        theme.secondary_bg_color || "#f3f3f3",
       );
-      root.style.setProperty(
-        "--accent",
-        tg.themeParams.button_color || "#000000",
-      );
+      root.style.setProperty("--accent", theme.button_color || "#000000");
       root.style.setProperty(
         "--track",
-        tg.themeParams.section_bg_color || "rgba(0,0,0,0.1)",
+        theme.section_bg_color || "rgba(0,0,0,0.1)",
       );
     }
 
     // Header color for Telegram
-    if (tg.setHeaderColor) {
+    if (tg.setHeaderColor && tg.headerColor) {
       tg.setHeaderColor(tg.headerColor);
     }
   }, []);
 
   useEffect(() => {
-    const tg = (window as any).Telegram?.WebApp;
+    const tg = getTelegramWebApp();
     const backButton = tg?.BackButton;
-    if (!backButton) {
-      setHasTgBack(false);
-      return;
-    }
-    setHasTgBack(true);
+    if (!backButton) return;
     const handleBack = () => setIsProfileOpen(false);
     backButton.onClick(handleBack);
     if (isProfileOpen) {
