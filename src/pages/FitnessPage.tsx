@@ -1,13 +1,12 @@
-import { useState, useMemo, useEffect, useCallback } from "react";
+import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import type { CSSProperties } from "react";
 import { getTelegramWebApp } from "../telegram";
 import type { TelegramHapticStyle } from "../telegram";
 import "./FitnessPage.css";
 
 /* ══════════════════════════════════════════════
-   TELEGRAM API HELPERS
+   TELEGRAM
 ══════════════════════════════════════════════ */
-
 const tg = () => getTelegramWebApp();
 
 function useTelegramBack(onBack: () => void, enabled: boolean) {
@@ -20,60 +19,45 @@ function useTelegramBack(onBack: () => void, enabled: boolean) {
     } else {
       btn.hide();
     }
-    return () => {
-      btn.offClick?.(onBack);
-    };
+    return () => btn.offClick?.(onBack);
   }, [enabled, onBack]);
 }
 
-const triggerHaptic = (style: TelegramHapticStyle = "light") => {
+const haptic = (s: TelegramHapticStyle = "light") => {
   const webApp = tg();
   if (webApp?.HapticFeedback) {
-    webApp.HapticFeedback.impactOccurred(style);
+    webApp.HapticFeedback.impactOccurred(s);
   } else {
     navigator.vibrate?.(8);
   }
 };
 
-const shareProgram = (title: string, programId: string) => {
+const shareWorkout = (title: string, id: string) => {
+  const baseUrl = `${window.location.origin}${window.location.pathname}`;
+  const url = `${baseUrl}#workout-${encodeURIComponent(id)}`;
   const webApp = tg();
-  const initDataUnsafe = webApp?.initDataUnsafe;
-  const hasUser =
-    !!initDataUnsafe &&
-    typeof initDataUnsafe === "object" &&
-    "user" in initDataUnsafe;
-  const botUsername = hasUser ? "your_bot" : null;
-  const link = botUsername
-    ? `https://t.me/${botUsername}/app?startapp=program_${programId}`
-    : window.location.href;
-
-  if (webApp?.openTelegramLink && botUsername) {
+  if (webApp?.openTelegramLink) {
     webApp.openTelegramLink(
-      `https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent(`Посмотри мою программу тренировок: ${title}`)}`,
+      `https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(`Посмотри мою тренировку: ${title}`)}`,
     );
   } else if (navigator.share) {
-    navigator.share({
-      title: `Программа: ${title}`,
-      text: `Посмотри мою программу тренировок: ${title}`,
-      url: window.location.href,
-    });
-  } else {
-    navigator.clipboard?.writeText(link);
-    webApp?.showAlert?.("Ссылка скопирована!");
+    void navigator.share({ title, url });
+  } else if (navigator.clipboard) {
+    navigator.clipboard.writeText(url);
   }
-  triggerHaptic("medium");
+  haptic("medium");
 };
 
 /* ══════════════════════════════════════════════
    TYPES
 ══════════════════════════════════════════════ */
-
 type Exercise = {
   id: string;
   name: string;
   sets: number;
   reps: string;
   rest: string;
+  note: string;
 };
 type Workout = {
   id: string;
@@ -108,20 +92,15 @@ type CatalogItem = {
   description: string;
   items: string[];
 };
-
-// scheduleMap: "YYYY-MM-DD" -> { workoutId, programId }
 type DayEntry = { workoutId: string; programId: string };
 type ScheduleMap = Record<string, DayEntry>;
-
 type Screen =
   | "main"
   | "program-detail"
-  | "workout-detail"
+  | "workout-edit"
   | "create-program"
-  | "create-workout"
   | "ai-text"
   | "ai-photo";
-
 type GoalType =
   | "Похудение"
   | "Набор массы"
@@ -132,9 +111,11 @@ type GoalType =
 /* ══════════════════════════════════════════════
    CONSTANTS
 ══════════════════════════════════════════════ */
-
 const uid = () =>
   `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+const fmt = (d: Date) => d.toISOString().slice(0, 10);
+const isToday = (d: Date) => fmt(d) === fmt(new Date());
+
 const FOCUS_OPTIONS = [
   "Сила",
   "Тонус",
@@ -142,8 +123,11 @@ const FOCUS_OPTIONS = [
   "Кардио",
   "Мобильность",
   "Выносливость",
+  "Пресс",
+  "Растяжка",
 ];
 const LEVELS = ["Начальный", "Средний", "Продвинутый"];
+const DAYS_RU = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
 const GOAL_OPTIONS: GoalType[] = [
   "Похудение",
   "Набор массы",
@@ -151,15 +135,15 @@ const GOAL_OPTIONS: GoalType[] = [
   "Выносливость",
   "Здоровье",
 ];
-const DAYS_RU = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
 const WORKOUT_COLORS = [
-  "#000000",
+  "#111111",
   "#1666b0",
   "#0d5c4a",
   "#8b2020",
   "#5a2d82",
   "#b05c00",
   "#1a6b6b",
+  "#8b6c1a",
 ];
 const COVERS = [
   "linear-gradient(135deg,#0f0f0f,#2d2d2d)",
@@ -169,20 +153,197 @@ const COVERS = [
   "linear-gradient(135deg,#1a0a2e,#5a2d82)",
 ];
 
-function getWeekDates(offset = 0): Date[] {
-  const today = new Date();
-  const dow = today.getDay();
-  const mon = new Date(today);
-  mon.setDate(today.getDate() - ((dow + 6) % 7) + offset * 7);
-  return Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(mon);
-    d.setDate(mon.getDate() + i);
-    return d;
-  });
-}
+/* Exercise suggestions grouped by category */
+const EXERCISE_SUGGESTIONS: Record<string, string[]> = {
+  Грудь: [
+    "Жим штанги лёжа",
+    "Жим гантелей лёжа",
+    "Разводка гантелей",
+    "Жим в тренажёре",
+    "Отжимания",
+    "Жим на наклонной",
+    "Кроссовер в блоке",
+    "Отжимания на брусьях",
+  ],
+  Спина: [
+    "Становая тяга",
+    "Тяга штанги в наклоне",
+    "Подтягивания",
+    "Тяга верхнего блока",
+    "Тяга горизонтального блока",
+    "Тяга гантели одной рукой",
+    "Гиперэкстензия",
+    "Шраги",
+  ],
+  Ноги: [
+    "Присед со штангой",
+    "Жим ногами",
+    "Выпады",
+    "Румынская тяга",
+    "Разгибание ног",
+    "Сгибание ног",
+    "Подъём на носки",
+    "Сумо приседания",
+    "Болгарские выпады",
+  ],
+  Плечи: [
+    "Жим штанги стоя",
+    "Жим гантелей сидя",
+    "Тяга к подбородку",
+    "Махи в стороны",
+    "Передние подъёмы",
+    "Разводка в наклоне",
+    "Армейский жим",
+  ],
+  Бицепс: [
+    "Подъём штанги на бицепс",
+    "Молотки",
+    "Концентрированные сгибания",
+    "Сгибания в блоке",
+    "Подъём гантелей поочерёдно",
+  ],
+  Трицепс: [
+    "Французский жим",
+    "Жим узким хватом",
+    "Разгибание в блоке",
+    "Разгибание гантелью из-за головы",
+    "Отжимания от скамьи",
+  ],
+  Пресс: [
+    "Скручивания",
+    "Обратные скручивания",
+    "Планка",
+    "Велосипед",
+    "Подъём ног",
+    "Русский твист",
+    "Крокодил",
+    "Боковая планка",
+  ],
+  Кардио: [
+    "Бег на месте",
+    "Берпи",
+    "Прыжки со скакалкой",
+    "Горизонтальные прыжки",
+    "Альпинист",
+    "Прыжки в стороны",
+    "Велотренажёр",
+  ],
+};
 
-const fmt = (d: Date) => d.toISOString().slice(0, 10);
-const isToday = (d: Date) => fmt(d) === fmt(new Date());
+const CATALOG_ITEMS: CatalogItem[] = [
+  {
+    id: "c1",
+    title: "Сушка 6 недель",
+    author: "Coach Vera",
+    level: "Продвинутый",
+    duration: "50–70 мин",
+    focus: "Рельеф",
+    equipment: "Зал",
+    isPaid: true,
+    priceStars: 120,
+    cover: "linear-gradient(140deg,#0f0f0f,#2a2a2a)",
+    description:
+      "Программа с прогрессией нагрузки и контролем объёмов. 4 тренировки в неделю.",
+    items: [
+      "Разминка 10 мин",
+      "Силовой блок 40 мин",
+      "HIIT финишер 10 мин",
+      "Заминка 10 мин",
+    ],
+  },
+  {
+    id: "c2",
+    title: "Тонус дома",
+    author: "Fit Home Lab",
+    level: "Начальный",
+    duration: "25–35 мин",
+    focus: "Тонус",
+    equipment: "Без инвентаря",
+    isPaid: false,
+    priceStars: 0,
+    cover: "linear-gradient(140deg,#1666b0,#4a9de0)",
+    description: "Мягкий вход в тренировки: короткие сессии, без прыжков.",
+    items: [
+      "Разминка 5 мин",
+      "Низ тела 15 мин",
+      "Корпус 10 мин",
+      "Растяжка 5 мин",
+    ],
+  },
+  {
+    id: "c3",
+    title: "Сила + Кардио",
+    author: "Urban Gym",
+    level: "Средний",
+    duration: "40–55 мин",
+    focus: "Выносливость",
+    equipment: "Гантели",
+    isPaid: true,
+    priceStars: 80,
+    cover: "linear-gradient(140deg,#101010,#606060)",
+    description:
+      "Чередование силовых и кардио блоков для стабильного прогресса.",
+    items: [
+      "Разминка 8 мин",
+      "Силовой блок 20 мин",
+      "Кардио блок 15 мин",
+      "Заминка 5 мин",
+    ],
+  },
+  {
+    id: "c4",
+    title: "Здоровая спина",
+    author: "Balance Studio",
+    level: "Начальный",
+    duration: "30–40 мин",
+    focus: "Осанка",
+    equipment: "Коврик",
+    isPaid: false,
+    priceStars: 0,
+    cover: "linear-gradient(140deg,#0d5c4a,#2a9d7a)",
+    description:
+      "Укрепление кора и раскрытие грудного отдела для офисного ритма.",
+    items: [
+      "Разогрев 6 мин",
+      "Кор 14 мин",
+      "Мобильность 12 мин",
+      "Дыхание 5 мин",
+    ],
+  },
+  {
+    id: "c5",
+    title: "HIIT 20 мин",
+    author: "Fast Lab",
+    level: "Средний",
+    duration: "20 мин",
+    focus: "Жиросжигание",
+    equipment: "Без инвентаря",
+    isPaid: false,
+    priceStars: 0,
+    cover: "linear-gradient(140deg,#2a0d0d,#8b2020)",
+    description: "Интенсивные 20 минут: 8 кругов по 4 упражнения.",
+    items: ["Разминка 3 мин", "8 кругов HIIT", "Заминка 3 мин"],
+  },
+  {
+    id: "c6",
+    title: "Пилатес PRO",
+    author: "Studio Move",
+    level: "Средний",
+    duration: "45 мин",
+    focus: "Мобильность",
+    equipment: "Коврик",
+    isPaid: true,
+    priceStars: 60,
+    cover: "linear-gradient(140deg,#1a0a2e,#5a2d82)",
+    description:
+      "Пилатес с фокусом на глубокий кор, осанку и подвижность суставов.",
+    items: [
+      "Активация кора 10 мин",
+      "Основной блок 25 мин",
+      "Стретчинг 10 мин",
+    ],
+  },
+];
 
 const INITIAL_PROGRAMS: Program[] = [
   {
@@ -199,8 +360,8 @@ const INITIAL_PROGRAMS: Program[] = [
         id: "w1",
         title: "День A — Жим",
         duration: "50 мин",
-        focus: "Верх",
-        color: "#000000",
+        focus: "Грудь",
+        color: "#111111",
         exercises: [
           {
             id: "e1",
@@ -208,13 +369,15 @@ const INITIAL_PROGRAMS: Program[] = [
             sets: 4,
             reps: "6–8",
             rest: "2 мин",
+            note: "",
           },
           {
             id: "e2",
-            name: "Жим гантелей",
+            name: "Жим гантелей лёжа",
             sets: 3,
             reps: "10–12",
             rest: "90 сек",
+            note: "",
           },
           {
             id: "e3",
@@ -222,6 +385,7 @@ const INITIAL_PROGRAMS: Program[] = [
             sets: 3,
             reps: "10–12",
             rest: "90 сек",
+            note: "",
           },
         ],
       },
@@ -229,7 +393,7 @@ const INITIAL_PROGRAMS: Program[] = [
         id: "w2",
         title: "День B — Ноги",
         duration: "55 мин",
-        focus: "Низ",
+        focus: "Ноги",
         color: "#1666b0",
         exercises: [
           {
@@ -238,6 +402,7 @@ const INITIAL_PROGRAMS: Program[] = [
             sets: 4,
             reps: "5–7",
             rest: "3 мин",
+            note: "",
           },
           {
             id: "e5",
@@ -245,6 +410,7 @@ const INITIAL_PROGRAMS: Program[] = [
             sets: 3,
             reps: "10–12",
             rest: "2 мин",
+            note: "",
           },
           {
             id: "e6",
@@ -252,6 +418,7 @@ const INITIAL_PROGRAMS: Program[] = [
             sets: 3,
             reps: "10–12",
             rest: "90 сек",
+            note: "",
           },
         ],
       },
@@ -268,6 +435,7 @@ const INITIAL_PROGRAMS: Program[] = [
             sets: 4,
             reps: "4–6",
             rest: "3 мин",
+            note: "",
           },
           {
             id: "e8",
@@ -275,6 +443,7 @@ const INITIAL_PROGRAMS: Program[] = [
             sets: 3,
             reps: "8–10",
             rest: "2 мин",
+            note: "",
           },
           {
             id: "e9",
@@ -282,6 +451,7 @@ const INITIAL_PROGRAMS: Program[] = [
             sets: 3,
             reps: "max",
             rest: "2 мин",
+            note: "С весом если возможно",
           },
         ],
       },
@@ -292,8 +462,7 @@ const INITIAL_PROGRAMS: Program[] = [
 /* ══════════════════════════════════════════════
    ICONS
 ══════════════════════════════════════════════ */
-
-const Icon = {
+const I = {
   Plus: ({ s = 18 }: { s?: number }) => (
     <svg
       width={s}
@@ -415,7 +584,7 @@ const Icon = {
       <path d="M20 6L9 17l-5-5" />
     </svg>
   ),
-  ChevronRight: ({ s = 18 }: { s?: number }) => (
+  ChevR: ({ s = 18 }: { s?: number }) => (
     <svg
       width={s}
       height={s}
@@ -428,27 +597,464 @@ const Icon = {
       <path d="M9 18l6-6-6-6" />
     </svg>
   ),
+  ChevD: ({ s = 18 }: { s?: number }) => (
+    <svg
+      width={s}
+      height={s}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+    >
+      <path d="M6 9l6 6 6-6" />
+    </svg>
+  ),
+  Drag: ({ s = 16 }: { s?: number }) => (
+    <svg
+      width={s}
+      height={s}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+    >
+      <line x1="9" y1="5" x2="9" y2="19" />
+      <line x1="15" y1="5" x2="15" y2="19" />
+    </svg>
+  ),
+  Up: ({ s = 16 }: { s?: number }) => (
+    <svg
+      width={s}
+      height={s}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+    >
+      <path d="M18 15l-6-6-6 6" />
+    </svg>
+  ),
+  Down: ({ s = 16 }: { s?: number }) => (
+    <svg
+      width={s}
+      height={s}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+    >
+      <path d="M6 9l6 6 6-6" />
+    </svg>
+  ),
+  Note: ({ s = 14 }: { s?: number }) => (
+    <svg
+      width={s}
+      height={s}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+    >
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+      <polyline points="14 2 14 8 20 8" />
+      <line x1="16" y1="13" x2="8" y2="13" />
+      <line x1="16" y1="17" x2="8" y2="17" />
+    </svg>
+  ),
+  Search: ({ s = 16 }: { s?: number }) => (
+    <svg
+      width={s}
+      height={s}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+    >
+      <circle cx="11" cy="11" r="8" />
+      <path d="M21 21l-4.35-4.35" />
+    </svg>
+  ),
 };
 
 /* ══════════════════════════════════════════════
-   HELPERS — allWorkouts flat list
+   EXERCISE EDITOR COMPONENT
+   The core powerful component for adding/editing exercises
 ══════════════════════════════════════════════ */
 
+type ExerciseEditorProps = {
+  exercises: Exercise[];
+  accentColor: string;
+  onChange: (exs: Exercise[]) => void;
+};
+
+function ExerciseEditor({
+  exercises,
+  accentColor,
+  onChange,
+}: ExerciseEditorProps) {
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [activeCategory, setActiveCategory] = useState<string | null>(null);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const categories = Object.keys(EXERCISE_SUGGESTIONS);
+
+  const filteredSuggestions = useMemo(() => {
+    if (activeCategory)
+      return EXERCISE_SUGGESTIONS[activeCategory].filter((s) =>
+        s.toLowerCase().includes(query.toLowerCase()),
+      );
+    if (query.length < 1) return [];
+    return Object.values(EXERCISE_SUGGESTIONS)
+      .flat()
+      .filter((s) => s.toLowerCase().includes(query.toLowerCase()))
+      .slice(0, 12);
+  }, [query, activeCategory]);
+
+  const addExercise = (name: string) => {
+    const ex: Exercise = {
+      id: uid(),
+      name: name.trim(),
+      sets: 3,
+      reps: "10–12",
+      rest: "60 сек",
+      note: "",
+    };
+    const next = [...exercises, ex];
+    onChange(next);
+    setExpandedId(ex.id);
+    setQuery("");
+    setShowSuggestions(false);
+    setActiveCategory(null);
+    haptic("medium");
+  };
+
+  const addCustom = () => {
+    if (!query.trim()) return;
+    addExercise(query.trim());
+  };
+
+  const updateEx = (id: string, patch: Partial<Exercise>) =>
+    onChange(exercises.map((e) => (e.id === id ? { ...e, ...patch } : e)));
+
+  const removeEx = (id: string) => {
+    onChange(exercises.filter((e) => e.id !== id));
+    if (expandedId === id) setExpandedId(null);
+    haptic();
+  };
+
+  const moveUp = (idx: number) => {
+    if (idx === 0) return;
+    const arr = [...exercises];
+    [arr[idx - 1], arr[idx]] = [arr[idx], arr[idx - 1]];
+    onChange(arr);
+    haptic();
+  };
+
+  const moveDown = (idx: number) => {
+    if (idx === exercises.length - 1) return;
+    const arr = [...exercises];
+    [arr[idx], arr[idx + 1]] = [arr[idx + 1], arr[idx]];
+    onChange(arr);
+    haptic();
+  };
+
+  return (
+    <div className="ex-editor">
+      {/* Exercise list */}
+      {exercises.length > 0 && (
+        <div className="ex-editor-list">
+          {exercises.map((ex, idx) => {
+            const isOpen = expandedId === ex.id;
+            return (
+              <div
+                key={ex.id}
+                className={`ex-editor-card ${isOpen ? "open" : ""}`}
+              >
+                {/* Header row */}
+                <div
+                  className="ex-editor-row"
+                  onClick={() => {
+                    setExpandedId(isOpen ? null : ex.id);
+                    haptic();
+                  }}
+                >
+                  <div
+                    className="ex-editor-num"
+                    style={{ background: accentColor }}
+                  >
+                    {idx + 1}
+                  </div>
+                  <div className="ex-editor-info">
+                    <div className="ex-editor-name">{ex.name}</div>
+                    <div className="ex-editor-summary">
+                      {ex.sets}×{ex.reps} · {ex.rest}
+                    </div>
+                  </div>
+                  <div className="ex-editor-row-actions">
+                    <div
+                      className={`ex-editor-chevron ${isOpen ? "open" : ""}`}
+                    >
+                      <I.ChevD s={16} />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Expanded editor */}
+                {isOpen && (
+                  <div className="ex-editor-expanded">
+                    {/* Name edit */}
+                    <div className="ex-field-row">
+                      <label className="ex-field-label">Название</label>
+                      <input
+                        className="ex-field-input"
+                        value={ex.name}
+                        onChange={(e) =>
+                          updateEx(ex.id, { name: e.target.value })
+                        }
+                      />
+                    </div>
+
+                    {/* Sets / Reps / Rest */}
+                    <div className="ex-params-grid">
+                      <div className="ex-param-block">
+                        <label className="ex-field-label">Подходы</label>
+                        <div className="ex-num-ctrl">
+                          <button
+                            type="button"
+                            className="ex-num-btn"
+                            onClick={() => {
+                              updateEx(ex.id, {
+                                sets: Math.max(1, ex.sets - 1),
+                              });
+                              haptic();
+                            }}
+                          >
+                            −
+                          </button>
+                          <span className="ex-num-val">{ex.sets}</span>
+                          <button
+                            type="button"
+                            className="ex-num-btn"
+                            onClick={() => {
+                              updateEx(ex.id, {
+                                sets: Math.min(20, ex.sets + 1),
+                              });
+                              haptic();
+                            }}
+                          >
+                            +
+                          </button>
+                        </div>
+                      </div>
+                      <div className="ex-param-block">
+                        <label className="ex-field-label">Повторения</label>
+                        <input
+                          className="ex-field-input center"
+                          value={ex.reps}
+                          onChange={(e) =>
+                            updateEx(ex.id, { reps: e.target.value })
+                          }
+                          placeholder="10–12"
+                        />
+                      </div>
+                      <div className="ex-param-block">
+                        <label className="ex-field-label">Отдых</label>
+                        <input
+                          className="ex-field-input center"
+                          value={ex.rest}
+                          onChange={(e) =>
+                            updateEx(ex.id, { rest: e.target.value })
+                          }
+                          placeholder="60 сек"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Note */}
+                    <div className="ex-field-row">
+                      <label className="ex-field-label">
+                        <I.Note s={13} /> Заметка (необязательно)
+                      </label>
+                      <input
+                        className="ex-field-input"
+                        value={ex.note}
+                        onChange={(e) =>
+                          updateEx(ex.id, { note: e.target.value })
+                        }
+                        placeholder="Например: рукоятка нейтральная, не до отказа..."
+                      />
+                    </div>
+
+                    {/* Move / Delete */}
+                    <div className="ex-editor-footer">
+                      <div className="ex-move-btns">
+                        <button
+                          type="button"
+                          className="ex-move-btn"
+                          disabled={idx === 0}
+                          onClick={() => moveUp(idx)}
+                        >
+                          <I.Up s={14} /> Вверх
+                        </button>
+                        <button
+                          type="button"
+                          className="ex-move-btn"
+                          disabled={idx === exercises.length - 1}
+                          onClick={() => moveDown(idx)}
+                        >
+                          <I.Down s={14} /> Вниз
+                        </button>
+                      </div>
+                      <button
+                        type="button"
+                        className="ex-delete-btn"
+                        onClick={() => removeEx(ex.id)}
+                      >
+                        <I.Trash s={14} /> Удалить
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {exercises.length === 0 && (
+        <div className="ex-editor-empty">
+          <div className="ex-editor-empty-icon">🏋️</div>
+          <div className="ex-editor-empty-text">
+            Упражнений пока нет — добавь ниже
+          </div>
+        </div>
+      )}
+
+      {/* Add section */}
+      <div className="ex-add-section">
+        {/* Search / input */}
+        <div className="ex-search-wrap">
+          <div className="ex-search-icon">
+            <I.Search s={16} />
+          </div>
+          <input
+            ref={inputRef}
+            className="ex-search-input"
+            placeholder="Название упражнения..."
+            value={query}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setShowSuggestions(true);
+              setActiveCategory(null);
+            }}
+            onFocus={() => setShowSuggestions(true)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && query.trim()) addCustom();
+            }}
+          />
+          {query.length > 0 && (
+            <button
+              type="button"
+              className="ex-search-clear"
+              onClick={() => {
+                setQuery("");
+                setActiveCategory(null);
+                inputRef.current?.focus();
+              }}
+            >
+              <I.X s={14} />
+            </button>
+          )}
+        </div>
+
+        {/* Category chips */}
+        <div className="ex-category-chips">
+          {categories.map((cat) => (
+            <button
+              key={cat}
+              type="button"
+              className={`ex-cat-chip ${activeCategory === cat ? "active" : ""}`}
+              onClick={() => {
+                setActiveCategory(activeCategory === cat ? null : cat);
+                setShowSuggestions(true);
+                setQuery("");
+                haptic();
+              }}
+            >
+              {cat}
+            </button>
+          ))}
+        </div>
+
+        {/* Suggestions list */}
+        {showSuggestions && (activeCategory || query.length > 0) && (
+          <div className="ex-suggestions">
+            {filteredSuggestions.length === 0 && query.trim() ? (
+              <button
+                type="button"
+                className="ex-suggestion-item custom-add"
+                onClick={addCustom}
+              >
+                <I.Plus s={16} /> Добавить «{query.trim()}»
+              </button>
+            ) : (
+              <>
+                {filteredSuggestions.map((name) => (
+                  <button
+                    key={name}
+                    type="button"
+                    className="ex-suggestion-item"
+                    onClick={() => addExercise(name)}
+                  >
+                    <span>{name}</span>
+                    <I.Plus s={15} />
+                  </button>
+                ))}
+                {query.trim() &&
+                  !filteredSuggestions.includes(query.trim()) && (
+                    <button
+                      type="button"
+                      className="ex-suggestion-item custom-add"
+                      onClick={addCustom}
+                    >
+                      <I.Plus s={16} /> Добавить «{query.trim()}»
+                    </button>
+                  )}
+              </>
+            )}
+          </div>
+        )}
+
+        {/* No query, no category: quick "add custom" */}
+        {!showSuggestions && query.length === 0 && (
+          <button
+            type="button"
+            className="ex-add-custom-btn"
+            onClick={() => {
+              inputRef.current?.focus();
+              setShowSuggestions(true);
+            }}
+          >
+            <I.Plus s={16} /> Добавить своё упражнение
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════
+   SCHEDULE EDITOR
+══════════════════════════════════════════════ */
 type FlatWorkout = Workout & { programId: string; programTitle: string };
-
-/* ══════════════════════════════════════════════
-   SCHEDULE EDITOR BOTTOM SHEET
-   Shows a grid: rows = workouts, cols = days
-   Each cell toggleable
-══════════════════════════════════════════════ */
-
-type ScheduleEditorProps = {
-  allWorkouts: FlatWorkout[];
-  weekDates: Date[];
-  scheduleMap: ScheduleMap;
-  onApply: (map: ScheduleMap) => void;
-  onClose: () => void;
-};
 
 function ScheduleEditor({
   allWorkouts,
@@ -456,33 +1062,29 @@ function ScheduleEditor({
   scheduleMap,
   onApply,
   onClose,
-}: ScheduleEditorProps) {
+}: {
+  allWorkouts: FlatWorkout[];
+  weekDates: Date[];
+  scheduleMap: ScheduleMap;
+  onApply: (m: ScheduleMap) => void;
+  onClose: () => void;
+}) {
   const [local, setLocal] = useState<ScheduleMap>({ ...scheduleMap });
 
-  const toggle = (dateStr: string, w: FlatWorkout) => {
-    triggerHaptic("light");
+  const toggle = (ds: string, w: FlatWorkout) => {
+    haptic();
     setLocal((prev) => {
-      const cur = prev[dateStr];
-      if (cur && cur.workoutId === w.id) {
+      if (prev[ds]?.workoutId === w.id) {
         const n = { ...prev };
-        delete n[dateStr];
+        delete n[ds];
         return n;
       }
-      return {
-        ...prev,
-        [dateStr]: { workoutId: w.id, programId: w.programId },
-      };
+      return { ...prev, [ds]: { workoutId: w.id, programId: w.programId } };
     });
   };
 
-  const clearAll = () => {
-    setLocal({});
-    triggerHaptic("medium");
-  };
-
-  // Apply workout to specific days pattern
   const applyPattern = (w: FlatWorkout, days: number[]) => {
-    triggerHaptic("medium");
+    haptic("medium");
     setLocal((prev) => {
       const n = { ...prev };
       weekDates.forEach((d, i) => {
@@ -502,27 +1104,28 @@ function ScheduleEditor({
           <span className="schedule-sheet-title">Расписание недели</span>
           <div className="schedule-sheet-actions">
             <button
-              className="sched-clear-btn"
               type="button"
-              onClick={clearAll}
+              className="sched-clear-btn"
+              onClick={() => {
+                setLocal({});
+                haptic("medium");
+              }}
             >
               Очистить
             </button>
             <button
-              className="sched-done-btn"
               type="button"
+              className="sched-done-btn"
               onClick={() => {
                 onApply(local);
-                triggerHaptic("medium");
+                haptic("medium");
                 onClose();
               }}
             >
-              <Icon.Check /> Готово
+              <I.Check s={13} /> Готово
             </button>
           </div>
         </div>
-
-        {/* Day headers */}
         <div className="sched-day-row header-row">
           <div className="sched-workout-col-label" />
           {weekDates.map((d, i) => (
@@ -535,8 +1138,6 @@ function ScheduleEditor({
             </div>
           ))}
         </div>
-
-        {/* Rows per workout */}
         <div className="sched-rows">
           {allWorkouts.length === 0 ? (
             <div className="sched-empty">Сначала создай тренировки</div>
@@ -565,7 +1166,7 @@ function ScheduleEditor({
                       }
                       onClick={() => toggle(ds, w)}
                     >
-                      {active && <Icon.Check s={12} />}
+                      {active && <I.Check s={12} />}
                     </div>
                   );
                 })}
@@ -573,12 +1174,10 @@ function ScheduleEditor({
             ))
           )}
         </div>
-
-        {/* Quick patterns */}
         {allWorkouts.length > 0 && (
           <div className="sched-patterns">
             <div className="sched-patterns-title">Быстрые шаблоны</div>
-            {allWorkouts.slice(0, 3).map((w) => (
+            {allWorkouts.slice(0, 4).map((w) => (
               <div key={w.id} className="sched-pattern-row">
                 <div className="sched-pattern-label">
                   <span
@@ -595,8 +1194,8 @@ function ScheduleEditor({
                   ].map((p) => (
                     <button
                       key={p.label}
-                      className="sched-pattern-btn"
                       type="button"
+                      className="sched-pattern-btn"
                       onClick={() => applyPattern(w, p.days)}
                     >
                       {p.label}
@@ -613,9 +1212,8 @@ function ScheduleEditor({
 }
 
 /* ══════════════════════════════════════════════
-   PAGE TITLE HEADER (replaces back button)
+   PAGE HEADER
 ══════════════════════════════════════════════ */
-
 function PageHeader({ title }: { title: string }) {
   return (
     <div className="page-title-header">
@@ -627,19 +1225,14 @@ function PageHeader({ title }: { title: string }) {
 /* ══════════════════════════════════════════════
    MAIN COMPONENT
 ══════════════════════════════════════════════ */
-
 export default function FitnessPage() {
-  /* Navigation */
   const [screen, setScreen] = useState<Screen>("main");
   const [mainTab, setMainTab] = useState<"personal" | "catalog">("personal");
   const [catSubTab, setCatSubTab] = useState<"catalog" | "mine">("catalog");
 
-  /* Data */
   const [programs, setPrograms] = useState<Program[]>(INITIAL_PROGRAMS);
   const [scheduleMap, setScheduleMap] = useState<ScheduleMap>({});
   const [purchasedIds, setPurchasedIds] = useState<string[]>([]);
-
-  /* UI state */
   const [goal, setGoal] = useState<GoalType>("Рельеф");
   const [showGoalEdit, setShowGoalEdit] = useState(false);
   const [weekOffset, setWeekOffset] = useState(0);
@@ -649,30 +1242,39 @@ export default function FitnessPage() {
   const [activeProgramId, setActiveProgramId] = useState<string | null>(null);
   const [activeWorkoutId, setActiveWorkoutId] = useState<string | null>(null);
 
-  /* Forms */
+  /* New program form */
   const [npTitle, setNpTitle] = useState("");
   const [npDesc, setNpDesc] = useState("");
   const [npLevel, setNpLevel] = useState(LEVELS[1]);
   const [npWeeks, setNpWeeks] = useState(4);
   const [npCoverIdx, setNpCoverIdx] = useState(0);
-  const [wTitle, setWTitle] = useState("");
-  const [wDuration, setWDuration] = useState("");
-  const [wFocus, setWFocus] = useState(FOCUS_OPTIONS[0]);
-  const [wColorIdx, setWColorIdx] = useState(0);
-  const [wExercises, setWExercises] = useState<Exercise[]>([]);
-  const [wExName, setWExName] = useState("");
-  const [wExSets, setWExSets] = useState(3);
-  const [wExReps, setWExReps] = useState("10–12");
-  const [wExRest, setWExRest] = useState("60 сек");
-  const [editExName, setEditExName] = useState("");
+
+  /* Workout editor state — used for both create and edit */
+  const [wkTitle, setWkTitle] = useState("");
+  const [wkDuration, setWkDuration] = useState("");
+  const [wkFocus, setWkFocus] = useState(FOCUS_OPTIONS[0]);
+  const [wkColorIdx, setWkColorIdx] = useState(0);
+  const [wkExercises, setWkExercises] = useState<Exercise[]>([]);
+  const [wkIsNew, setWkIsNew] = useState(true); // true=create, false=edit existing
+
+  /* AI */
   const [aiQuery, setAiQuery] = useState("");
   const [aiLoading, setAiLoading] = useState(false);
 
   /* Derived */
-  const weekDates = useMemo(() => getWeekDates(weekOffset), [weekOffset]);
+  const weekDates = useMemo(() => {
+    const today = new Date();
+    const dow = today.getDay();
+    const mon = new Date(today);
+    mon.setDate(today.getDate() - ((dow + 6) % 7) + weekOffset * 7);
+    return Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(mon);
+      d.setDate(mon.getDate() + i);
+      return d;
+    });
+  }, [weekOffset]);
+
   const activeProgram = programs.find((p) => p.id === activeProgramId) ?? null;
-  const activeWorkout =
-    activeProgram?.workouts.find((w) => w.id === activeWorkoutId) ?? null;
   const allWorkouts = useMemo<FlatWorkout[]>(
     () =>
       programs.flatMap((p) =>
@@ -685,15 +1287,14 @@ export default function FitnessPage() {
     [programs],
   );
 
-  /* Telegram BackButton */
+  /* Back */
   const handleBack = useCallback(() => {
-    if (screen === "workout-detail" || screen === "create-workout") {
+    if (screen === "workout-edit") {
       setScreen("program-detail");
       return;
     }
     setScreen("main");
   }, [screen]);
-
   useTelegramBack(handleBack, screen !== "main");
 
   /* Mutations */
@@ -701,6 +1302,75 @@ export default function FitnessPage() {
     setPrograms((prev) =>
       prev.map((p) => (p.id === id ? { ...p, ...patch } : p)),
     );
+
+  const openCreateWorkout = () => {
+    setWkTitle("");
+    setWkDuration("");
+    setWkFocus(FOCUS_OPTIONS[0]);
+    setWkColorIdx(0);
+    setWkExercises([]);
+    setWkIsNew(true);
+    setScreen("workout-edit");
+    haptic();
+  };
+
+  const openEditWorkout = (wk: Workout) => {
+    setActiveWorkoutId(wk.id);
+    setWkTitle(wk.title);
+    setWkDuration(wk.duration);
+    setWkFocus(wk.focus);
+    setWkColorIdx(
+      WORKOUT_COLORS.indexOf(wk.color) >= 0
+        ? WORKOUT_COLORS.indexOf(wk.color)
+        : 0,
+    );
+    setWkExercises([...wk.exercises.map((e) => ({ ...e }))]);
+    setWkIsNew(false);
+    setScreen("workout-edit");
+    haptic();
+  };
+
+  const saveWorkout = () => {
+    if (!wkTitle.trim() || !activeProgramId) return;
+    if (wkIsNew) {
+      const wk: Workout = {
+        id: uid(),
+        title: wkTitle.trim(),
+        duration: wkDuration || "30–45 мин",
+        focus: wkFocus,
+        color: WORKOUT_COLORS[wkColorIdx],
+        exercises: wkExercises,
+      };
+      updateProgram(activeProgramId, {
+        workouts: [...(activeProgram?.workouts ?? []), wk],
+      });
+    } else if (activeWorkoutId) {
+      updateProgram(activeProgramId, {
+        workouts: activeProgram!.workouts.map((w) =>
+          w.id === activeWorkoutId
+            ? {
+                ...w,
+                title: wkTitle.trim(),
+                duration: wkDuration || w.duration,
+                focus: wkFocus,
+                color: WORKOUT_COLORS[wkColorIdx],
+                exercises: wkExercises,
+              }
+            : w,
+        ),
+      });
+    }
+    setScreen("program-detail");
+    haptic("medium");
+  };
+
+  const deleteWorkout = (wkId: string) => {
+    if (!activeProgramId) return;
+    updateProgram(activeProgramId, {
+      workouts: activeProgram!.workouts.filter((w) => w.id !== wkId),
+    });
+    haptic();
+  };
 
   const createProgram = () => {
     if (!npTitle.trim()) return;
@@ -722,79 +1392,7 @@ export default function FitnessPage() {
     setNpWeeks(4);
     setNpCoverIdx(0);
     setScreen("program-detail");
-    triggerHaptic("medium");
-  };
-
-  const createWorkout = () => {
-    if (!wTitle.trim() || !activeProgramId) return;
-    const w: Workout = {
-      id: uid(),
-      title: wTitle.trim(),
-      duration: wDuration || "30–45 мин",
-      focus: wFocus,
-      color: WORKOUT_COLORS[wColorIdx],
-      exercises: wExercises,
-    };
-    updateProgram(activeProgramId, {
-      workouts: [...(activeProgram?.workouts ?? []), w],
-    });
-    setWTitle("");
-    setWDuration("");
-    setWExercises([]);
-    setScreen("program-detail");
-    triggerHaptic("medium");
-  };
-
-  const addExToForm = () => {
-    if (!wExName.trim()) return;
-    setWExercises((p) => [
-      ...p,
-      {
-        id: uid(),
-        name: wExName.trim(),
-        sets: wExSets,
-        reps: wExReps,
-        rest: wExRest,
-      },
-    ]);
-    setWExName("");
-    triggerHaptic();
-  };
-
-  const addExToWorkout = () => {
-    if (!editExName.trim() || !activeProgramId || !activeWorkoutId) return;
-    updateProgram(activeProgramId, {
-      workouts: activeProgram!.workouts.map((w) =>
-        w.id === activeWorkoutId
-          ? {
-              ...w,
-              exercises: [
-                ...w.exercises,
-                {
-                  id: uid(),
-                  name: editExName.trim(),
-                  sets: 3,
-                  reps: "10–12",
-                  rest: "60 сек",
-                },
-              ],
-            }
-          : w,
-      ),
-    });
-    setEditExName("");
-    triggerHaptic();
-  };
-
-  const removeEx = (exId: string) => {
-    if (!activeProgramId || !activeWorkoutId) return;
-    updateProgram(activeProgramId, {
-      workouts: activeProgram!.workouts.map((w) =>
-        w.id === activeWorkoutId
-          ? { ...w, exercises: w.exercises.filter((e) => e.id !== exId) }
-          : w,
-      ),
-    });
+    haptic("medium");
   };
 
   const simulateAI = () => {
@@ -824,20 +1422,23 @@ export default function FitnessPage() {
                 sets: 4,
                 reps: "8–10",
                 rest: "2 мин",
+                note: "",
               },
               {
                 id: uid(),
-                name: "Жим",
+                name: "Жим штанги лёжа",
                 sets: 3,
                 reps: "10–12",
                 rest: "90 сек",
+                note: "",
               },
               {
                 id: uid(),
-                name: "Тяга",
+                name: "Тяга в наклоне",
                 sets: 3,
                 reps: "10–12",
                 rest: "90 сек",
+                note: "",
               },
             ],
           },
@@ -848,13 +1449,21 @@ export default function FitnessPage() {
             focus: "Кардио",
             color: WORKOUT_COLORS[1],
             exercises: [
-              { id: uid(), name: "Берпи", sets: 4, reps: "10", rest: "45 сек" },
               {
                 id: uid(),
-                name: "Прыжки",
+                name: "Берпи",
+                sets: 4,
+                reps: "10",
+                rest: "45 сек",
+                note: "",
+              },
+              {
+                id: uid(),
+                name: "Прыжки со скакалкой",
                 sets: 3,
-                reps: "20",
+                reps: "60 сек",
                 rest: "30 сек",
+                note: "",
               },
             ],
           },
@@ -865,9 +1474,133 @@ export default function FitnessPage() {
       setAiQuery("");
       setActiveProgramId(prog.id);
       setScreen("program-detail");
-      triggerHaptic("medium");
+      haptic("medium");
     }, 1800);
   };
+
+  /* ── Week schedule helpers ── */
+  const weekWithData = weekDates.map((d, i) => {
+    const ds = fmt(d);
+    const entry = scheduleMap[ds];
+    const wk = entry
+      ? (allWorkouts.find((w) => w.id === entry.workoutId) ?? null)
+      : null;
+    return {
+      date: d,
+      ds,
+      dayName: DAYS_RU[i],
+      workout: wk,
+      isToday: isToday(d),
+    };
+  });
+  const hasSchedule = weekWithData.some((d) => d.workout);
+
+  /* ══════════════════════════════════════════════
+     SCREEN: WORKOUT EDIT (create + edit merged)
+  ══════════════════════════════════════════════ */
+  if (screen === "workout-edit" && activeProgram)
+    return (
+      <div className="fitness-page">
+        <PageHeader title={wkIsNew ? "Новая тренировка" : "Редактировать"} />
+
+        {/* Meta card */}
+        <div className="wk-meta-card">
+          <div className="wk-meta-field">
+            <label className="form-label">Название тренировки</label>
+            <input
+              className="form-input large"
+              placeholder="День A — Жим"
+              value={wkTitle}
+              onChange={(e) => setWkTitle(e.target.value)}
+            />
+          </div>
+          <div className="wk-meta-row">
+            <div className="wk-meta-field half">
+              <label className="form-label">Длительность</label>
+              <input
+                className="form-input"
+                placeholder="45–60 мин"
+                value={wkDuration}
+                onChange={(e) => setWkDuration(e.target.value)}
+              />
+            </div>
+            <div className="wk-meta-field half">
+              <label className="form-label">Акцент</label>
+              <select
+                className="form-select"
+                value={wkFocus}
+                onChange={(e) => {
+                  setWkFocus(e.target.value);
+                  haptic();
+                }}
+              >
+                {FOCUS_OPTIONS.map((f) => (
+                  <option key={f} value={f}>
+                    {f}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <div className="wk-meta-field">
+            <label className="form-label">Цвет карточки</label>
+            <div className="color-row">
+              {WORKOUT_COLORS.map((c, i) => (
+                <div
+                  key={i}
+                  className={`color-dot ${wkColorIdx === i ? "active" : ""}`}
+                  style={{ background: c }}
+                  onClick={() => {
+                    setWkColorIdx(i);
+                    haptic();
+                  }}
+                />
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Section header */}
+        <div className="section-row">
+          <h2>
+            Упражнения{" "}
+            <span className="ex-count-badge">{wkExercises.length}</span>
+          </h2>
+        </div>
+
+        {/* Exercise editor */}
+        <ExerciseEditor
+          exercises={wkExercises}
+          accentColor={WORKOUT_COLORS[wkColorIdx]}
+          onChange={setWkExercises}
+        />
+
+        {/* Save */}
+        <div className="wk-save-area">
+          <button
+            className="btn-primary full-w"
+            type="button"
+            onClick={saveWorkout}
+            disabled={!wkTitle.trim()}
+          >
+            {wkIsNew ? "Создать тренировку" : "Сохранить изменения"}
+          </button>
+          {!wkIsNew && activeWorkoutId && (
+            <button
+              type="button"
+              className="btn-danger-outline"
+              onClick={() => {
+                deleteWorkout(activeWorkoutId);
+                setScreen("program-detail");
+                haptic("heavy");
+              }}
+            >
+              <I.Trash s={15} /> Удалить тренировку
+            </button>
+          )}
+        </div>
+      </div>
+    );
 
   /* ══════════════════════════════════════════════
      SCREEN: PROGRAM DETAIL
@@ -880,18 +1613,19 @@ export default function FitnessPage() {
           <div className="prog-hero-inner">
             <div className="prog-hero-title">{activeProgram.title}</div>
             <div className="prog-hero-meta">
-              {activeProgram.level} · {activeProgram.weeks} нед
+              {activeProgram.level} · {activeProgram.weeks} нед ·{" "}
+              {activeProgram.workouts.length} тренировок
             </div>
           </div>
           <div className="prog-hero-actions">
             <button
               className="prog-share-btn"
               type="button"
-              onClick={() => {
-                shareProgram(activeProgram.title, activeProgram.id);
-              }}
+              onClick={() =>
+                shareWorkout(activeProgram.title, activeProgram.id)
+              }
             >
-              <Icon.Share s={16} /> Поделиться
+              <I.Share s={15} /> Поделиться
             </button>
           </div>
         </div>
@@ -903,15 +1637,9 @@ export default function FitnessPage() {
           <button
             className="btn-text"
             type="button"
-            onClick={() => {
-              setWTitle("");
-              setWDuration("");
-              setWExercises([]);
-              setScreen("create-workout");
-              triggerHaptic();
-            }}
+            onClick={openCreateWorkout}
           >
-            <Icon.Plus /> Добавить
+            <I.Plus /> Добавить
           </button>
         </div>
 
@@ -929,11 +1657,7 @@ export default function FitnessPage() {
                 />
                 <div
                   className="workout-card-main"
-                  onClick={() => {
-                    setActiveWorkoutId(wk.id);
-                    setScreen("workout-detail");
-                    triggerHaptic();
-                  }}
+                  onClick={() => openEditWorkout(wk)}
                 >
                   <div>
                     <div className="workout-card-title">{wk.title}</div>
@@ -941,45 +1665,41 @@ export default function FitnessPage() {
                       {wk.focus} · {wk.duration} · {wk.exercises.length} упр.
                     </div>
                   </div>
-                  <Icon.ChevronRight s={18} />
+                  <div className="workout-card-edit-hint">
+                    Ред. <I.ChevR s={16} />
+                  </div>
                 </div>
                 {wk.exercises.length > 0 && (
                   <div className="workout-ex-preview">
-                    {wk.exercises.slice(0, 3).map((ex) => (
+                    {wk.exercises.slice(0, 4).map((ex) => (
                       <span key={ex.id} className="ex-preview-chip">
                         {ex.name}
                       </span>
                     ))}
-                    {wk.exercises.length > 3 && (
+                    {wk.exercises.length > 4 && (
                       <span className="ex-preview-chip muted">
-                        +{wk.exercises.length - 3}
+                        +{wk.exercises.length - 4}
                       </span>
                     )}
                   </div>
                 )}
                 <div className="workout-card-footer">
                   <button
+                    className="btn-share-sm"
+                    type="button"
+                    onClick={() => shareWorkout(wk.title, activeProgram.id)}
+                  >
+                    <I.Share s={13} /> Поделиться
+                  </button>
+                  <button
                     className="btn-danger-sm"
                     type="button"
                     onClick={() => {
-                      updateProgram(activeProgram.id, {
-                        workouts: activeProgram.workouts.filter(
-                          (w) => w.id !== wk.id,
-                        ),
-                      });
-                      triggerHaptic();
+                      deleteWorkout(wk.id);
+                      haptic();
                     }}
                   >
-                    <Icon.Trash s={13} /> Удалить
-                  </button>
-                  <button
-                    className="btn-share-sm"
-                    type="button"
-                    onClick={() => {
-                      shareProgram(wk.title, activeProgram.id);
-                    }}
-                  >
-                    <Icon.Share s={13} /> Поделиться
+                    <I.Trash s={13} /> Удалить
                   </button>
                 </div>
               </div>
@@ -999,7 +1719,7 @@ export default function FitnessPage() {
                 updateProgram(activeProgram.id, {
                   forSale: !activeProgram.forSale,
                 });
-                triggerHaptic();
+                haptic();
               }}
             />
           </div>
@@ -1007,7 +1727,7 @@ export default function FitnessPage() {
             <div className="sell-fields">
               <div className="price-row">
                 <span className="price-star">
-                  <Icon.Star s={14} />
+                  <I.Star s={14} />
                 </span>
                 <input
                   className="price-input"
@@ -1024,7 +1744,7 @@ export default function FitnessPage() {
               <button
                 className="btn-primary full-w"
                 type="button"
-                onClick={() => triggerHaptic("medium")}
+                onClick={() => haptic("medium")}
               >
                 Опубликовать в каталог
               </button>
@@ -1038,95 +1758,11 @@ export default function FitnessPage() {
           onClick={() => {
             setPrograms((p) => p.filter((x) => x.id !== activeProgram.id));
             setScreen("main");
-            triggerHaptic("medium");
+            haptic("heavy");
           }}
         >
           Удалить программу
         </button>
-      </div>
-    );
-
-  /* ══════════════════════════════════════════════
-     SCREEN: WORKOUT DETAIL
-  ══════════════════════════════════════════════ */
-  if (screen === "workout-detail" && activeWorkout && activeProgram)
-    return (
-      <div className="fitness-page">
-        <PageHeader title={activeWorkout.title} />
-        <div
-          className="workout-hero"
-          style={{ borderLeft: `4px solid ${activeWorkout.color}` }}
-        >
-          <span className="workout-hero-focus">{activeWorkout.focus}</span>
-          <div className="workout-hero-title">{activeWorkout.title}</div>
-          <div className="workout-hero-meta">
-            {activeWorkout.duration} · {activeWorkout.exercises.length}{" "}
-            упражнений
-          </div>
-        </div>
-
-        <div className="section-row">
-          <h2>Упражнения</h2>
-          <span className="section-hint">{activeWorkout.exercises.length}</span>
-        </div>
-
-        {activeWorkout.exercises.length === 0 ? (
-          <div className="empty-state small">
-            <div className="empty-sub">Упражнения не добавлены</div>
-          </div>
-        ) : (
-          <div className="exercise-list">
-            {activeWorkout.exercises.map((ex, idx) => (
-              <div className="exercise-card" key={ex.id}>
-                <div
-                  className="ex-idx"
-                  style={{ background: activeWorkout.color }}
-                >
-                  {idx + 1}
-                </div>
-                <div className="ex-info">
-                  <div className="ex-name">{ex.name}</div>
-                  <div className="ex-chips">
-                    <span className="ex-chip">{ex.sets} подх.</span>
-                    <span className="ex-chip">{ex.reps}</span>
-                    <span className="ex-chip muted">отдых {ex.rest}</span>
-                  </div>
-                </div>
-                <button
-                  className="btn-remove-ex"
-                  type="button"
-                  onClick={() => {
-                    removeEx(ex.id);
-                    triggerHaptic();
-                  }}
-                >
-                  <Icon.Trash />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-
-        <div className="add-ex-block">
-          <label className="form-label">Добавить упражнение</label>
-          <input
-            className="form-input"
-            placeholder="Название упражнения"
-            value={editExName}
-            onChange={(e) => setEditExName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") addExToWorkout();
-            }}
-          />
-          <button
-            className="btn-add-ex"
-            type="button"
-            onClick={addExToWorkout}
-            disabled={!editExName.trim()}
-          >
-            <Icon.Plus s={15} /> Добавить
-          </button>
-        </div>
       </div>
     );
 
@@ -1166,7 +1802,7 @@ export default function FitnessPage() {
                 className={`opt-chip ${npLevel === l ? "active" : ""}`}
                 onClick={() => {
                   setNpLevel(l);
-                  triggerHaptic();
+                  haptic();
                 }}
               >
                 {l}
@@ -1206,7 +1842,7 @@ export default function FitnessPage() {
                 style={{ background: c }}
                 onClick={() => {
                   setNpCoverIdx(i);
-                  triggerHaptic();
+                  haptic();
                 }}
               />
             ))}
@@ -1224,169 +1860,6 @@ export default function FitnessPage() {
     );
 
   /* ══════════════════════════════════════════════
-     SCREEN: CREATE WORKOUT
-  ══════════════════════════════════════════════ */
-  if (screen === "create-workout" && activeProgram)
-    return (
-      <div className="fitness-page">
-        <PageHeader title="Новая тренировка" />
-        <div className="form-block">
-          <label className="form-label">Название</label>
-          <input
-            className="form-input"
-            placeholder="День A — Жим"
-            value={wTitle}
-            onChange={(e) => setWTitle(e.target.value)}
-          />
-        </div>
-        <div className="form-block">
-          <label className="form-label">Длительность</label>
-          <input
-            className="form-input"
-            placeholder="45–60 мин"
-            value={wDuration}
-            onChange={(e) => setWDuration(e.target.value)}
-          />
-        </div>
-        <div className="form-block">
-          <label className="form-label">Акцент</label>
-          <div className="chip-row wrap">
-            {FOCUS_OPTIONS.map((f) => (
-              <button
-                key={f}
-                type="button"
-                className={`opt-chip ${wFocus === f ? "active" : ""}`}
-                onClick={() => {
-                  setWFocus(f);
-                  triggerHaptic();
-                }}
-              >
-                {f}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="form-block">
-          <label className="form-label">Цвет</label>
-          <div className="color-row">
-            {WORKOUT_COLORS.map((c, i) => (
-              <div
-                key={i}
-                className={`color-dot ${wColorIdx === i ? "active" : ""}`}
-                style={{ background: c }}
-                onClick={() => {
-                  setWColorIdx(i);
-                  triggerHaptic();
-                }}
-              />
-            ))}
-          </div>
-        </div>
-
-        <div className="section-row">
-          <h2>Упражнения</h2>
-          <span className="section-hint">{wExercises.length}</span>
-        </div>
-
-        {wExercises.length > 0 && (
-          <div className="exercise-list">
-            {wExercises.map((ex, idx) => (
-              <div className="exercise-card" key={ex.id}>
-                <div className="ex-idx">{idx + 1}</div>
-                <div className="ex-info">
-                  <div className="ex-name">{ex.name}</div>
-                  <div className="ex-chips">
-                    <span className="ex-chip">{ex.sets} подх.</span>
-                    <span className="ex-chip">{ex.reps}</span>
-                    <span className="ex-chip muted">{ex.rest}</span>
-                  </div>
-                </div>
-                <button
-                  className="btn-remove-ex"
-                  type="button"
-                  onClick={() => {
-                    setWExercises((p) => p.filter((e) => e.id !== ex.id));
-                    triggerHaptic();
-                  }}
-                >
-                  <Icon.Trash />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-
-        <div className="add-ex-block">
-          <label className="form-label">Добавить упражнение</label>
-          <input
-            className="form-input"
-            placeholder="Название упражнения"
-            value={wExName}
-            onChange={(e) => setWExName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") addExToForm();
-            }}
-          />
-          <div className="ex-params-row">
-            <div className="ex-param-col">
-              <span className="ex-param-label">Подходы</span>
-              <div className="num-ctrl sm">
-                <button
-                  type="button"
-                  className="num-btn"
-                  onClick={() => setWExSets((s) => Math.max(1, s - 1))}
-                >
-                  −
-                </button>
-                <span className="num-val">{wExSets}</span>
-                <button
-                  type="button"
-                  className="num-btn"
-                  onClick={() => setWExSets((s) => Math.min(10, s + 1))}
-                >
-                  +
-                </button>
-              </div>
-            </div>
-            <div className="ex-param-col">
-              <span className="ex-param-label">Повторения</span>
-              <input
-                className="ex-param-input"
-                value={wExReps}
-                onChange={(e) => setWExReps(e.target.value)}
-              />
-            </div>
-            <div className="ex-param-col">
-              <span className="ex-param-label">Отдых</span>
-              <input
-                className="ex-param-input"
-                value={wExRest}
-                onChange={(e) => setWExRest(e.target.value)}
-              />
-            </div>
-          </div>
-          <button
-            className="btn-add-ex"
-            type="button"
-            onClick={addExToForm}
-            disabled={!wExName.trim()}
-          >
-            <Icon.Plus s={15} /> Добавить
-          </button>
-        </div>
-
-        <button
-          className="btn-primary full-w"
-          type="button"
-          onClick={createWorkout}
-          disabled={!wTitle.trim()}
-        >
-          Сохранить тренировку
-        </button>
-      </div>
-    );
-
-  /* ══════════════════════════════════════════════
      SCREEN: AI TEXT
   ══════════════════════════════════════════════ */
   if (screen === "ai-text")
@@ -1395,11 +1868,11 @@ export default function FitnessPage() {
         <PageHeader title="AI по тексту" />
         <div className="ai-intro-card">
           <div className="ai-intro-icon">
-            <Icon.Sparkle />
+            <I.Sparkle />
           </div>
           <div className="ai-intro-text">
-            Опиши цель, уровень и предпочтения — AI составит программу
-            тренировок
+            Опиши цель, уровень и предпочтения — AI составит программу с
+            упражнениями
           </div>
         </div>
         <div className="form-block">
@@ -1426,7 +1899,7 @@ export default function FitnessPage() {
               type="button"
               onClick={() => {
                 setAiQuery(ex);
-                triggerHaptic();
+                haptic();
               }}
             >
               {ex}
@@ -1443,7 +1916,7 @@ export default function FitnessPage() {
             <span className="ai-loader" />
           ) : (
             <>
-              <Icon.Sparkle s={16} /> Сгенерировать
+              <I.Sparkle s={16} /> Сгенерировать
             </>
           )}
         </button>
@@ -1459,7 +1932,7 @@ export default function FitnessPage() {
         <PageHeader title="AI по фото" />
         <div className="photo-upload-area">
           <div className="photo-upload-icon">
-            <Icon.Camera />
+            <I.Camera />
           </div>
           <div className="photo-upload-title">Загрузи фото тела</div>
           <div className="photo-upload-sub">
@@ -1469,7 +1942,7 @@ export default function FitnessPage() {
             className="btn-primary"
             type="button"
             style={{ marginTop: 20 }}
-            onClick={() => triggerHaptic("medium")}
+            onClick={() => haptic("medium")}
           >
             Выбрать фото
           </button>
@@ -1490,28 +1963,8 @@ export default function FitnessPage() {
   /* ══════════════════════════════════════════════
      SCREEN: MAIN
   ══════════════════════════════════════════════ */
-
-  // Week schedule derived data
-  const weekWithWorkouts = weekDates.map((d, i) => {
-    const ds = fmt(d);
-    const entry = scheduleMap[ds];
-    const workout = entry
-      ? (allWorkouts.find((w) => w.id === entry.workoutId) ?? null)
-      : null;
-    return {
-      date: d,
-      dateStr: ds,
-      dayName: DAYS_RU[i],
-      workout,
-      isToday: isToday(d),
-    };
-  });
-
-  const hasAnySchedule = weekWithWorkouts.some((d) => d.workout);
-
   return (
     <div className="fitness-page">
-      {/* ── MAIN TAB SWITCH ── */}
       <div className="fitness-header">
         <h1>Тренировки</h1>
       </div>
@@ -1526,7 +1979,7 @@ export default function FitnessPage() {
             type="button"
             onClick={() => {
               setMainTab("personal");
-              triggerHaptic();
+              haptic();
             }}
           >
             Личные
@@ -1536,7 +1989,7 @@ export default function FitnessPage() {
             type="button"
             onClick={() => {
               setMainTab("catalog");
-              triggerHaptic();
+              haptic();
             }}
           >
             Каталог
@@ -1544,9 +1997,7 @@ export default function FitnessPage() {
         </div>
       </div>
 
-      {/* ════════════════════════════════
-          TAB: ЛИЧНЫЕ
-      ════════════════════════════════ */}
+      {/* ════ TAB: ЛИЧНЫЕ ════ */}
       {mainTab === "personal" && (
         <>
           {/* Goal */}
@@ -1554,18 +2005,17 @@ export default function FitnessPage() {
             className="goal-card"
             onClick={() => {
               setShowGoalEdit((v) => !v);
-              triggerHaptic();
+              haptic();
             }}
           >
-            <div className="goal-card-left">
+            <div>
               <div className="goal-label">Твоя цель</div>
               <div className="goal-value">{goal}</div>
             </div>
             <div className={`goal-chevron ${showGoalEdit ? "open" : ""}`}>
-              <Icon.ChevronRight s={18} />
+              <I.ChevD s={18} />
             </div>
           </div>
-
           {showGoalEdit && (
             <div className="goal-picker">
               {GOAL_OPTIONS.map((g) => (
@@ -1576,31 +2026,30 @@ export default function FitnessPage() {
                   onClick={() => {
                     setGoal(g);
                     setShowGoalEdit(false);
-                    triggerHaptic();
+                    haptic();
                   }}
                 >
-                  {goal === g && <Icon.Check s={14} />} {g}
+                  {goal === g && <I.Check s={14} />} {g}
                 </button>
               ))}
             </div>
           )}
 
-          {/* Create workout */}
+          {/* Create */}
           <div className="section-row" style={{ marginTop: 28 }}>
             <h2>Создать тренировку</h2>
           </div>
-
           <div className="create-grid">
             <button
               className="create-card ai-text-card"
               type="button"
               onClick={() => {
                 setScreen("ai-text");
-                triggerHaptic("medium");
+                haptic("medium");
               }}
             >
               <div className="create-card-icon">
-                <Icon.Sparkle />
+                <I.Sparkle />
               </div>
               <div className="create-card-content">
                 <div className="create-card-title">AI по тексту</div>
@@ -1612,11 +2061,11 @@ export default function FitnessPage() {
               type="button"
               onClick={() => {
                 setScreen("ai-photo");
-                triggerHaptic("medium");
+                haptic("medium");
               }}
             >
               <div className="create-card-icon">
-                <Icon.Camera />
+                <I.Camera />
               </div>
               <div className="create-card-title">AI по фото</div>
               <div className="create-card-sub">Анализ состава тела</div>
@@ -1630,18 +2079,18 @@ export default function FitnessPage() {
                 setNpWeeks(4);
                 setNpCoverIdx(0);
                 setScreen("create-program");
-                triggerHaptic("medium");
+                haptic("medium");
               }}
             >
               <div className="create-card-icon">
-                <Icon.Pencil />
+                <I.Pencil />
               </div>
               <div className="create-card-title">Вручную</div>
               <div className="create-card-sub">Своя программа с нуля</div>
             </button>
           </div>
 
-          {/* ════ SCHEDULE SECTION ════ */}
+          {/* Schedule */}
           <div className="section-row" style={{ marginTop: 36 }}>
             <h2>Расписание</h2>
             <div className="schedule-header-right">
@@ -1651,7 +2100,7 @@ export default function FitnessPage() {
                   type="button"
                   onClick={() => {
                     setWeekOffset((o) => o - 1);
-                    triggerHaptic();
+                    haptic();
                   }}
                 >
                   ‹
@@ -1660,17 +2109,19 @@ export default function FitnessPage() {
                   {weekOffset === 0
                     ? "Эта неделя"
                     : weekOffset === 1
-                      ? "След. неделя"
+                      ? "След."
                       : weekOffset === -1
-                        ? "Пред. неделя"
-                        : `${weekOffset > 0 ? "+" : ""}${weekOffset} нед`}
+                        ? "Пред."
+                        : weekOffset > 0
+                          ? `+${weekOffset}нед`
+                          : `${weekOffset}нед`}
                 </span>
                 <button
                   className="week-nav-btn"
                   type="button"
                   onClick={() => {
                     setWeekOffset((o) => o + 1);
-                    triggerHaptic();
+                    haptic();
                   }}
                 >
                   ›
@@ -1681,7 +2132,7 @@ export default function FitnessPage() {
                 type="button"
                 onClick={() => {
                   setShowScheduleEditor(true);
-                  triggerHaptic();
+                  haptic();
                 }}
               >
                 Изменить
@@ -1689,16 +2140,15 @@ export default function FitnessPage() {
             </div>
           </div>
 
-          {/* Week overview strip */}
           <div className="week-overview">
-            {weekWithWorkouts.map(
-              ({ date, dateStr, dayName, workout, isToday: tod }) => (
+            {weekWithData.map(
+              ({ date, ds, dayName, workout, isToday: tod }) => (
                 <div
-                  key={dateStr}
+                  key={ds}
                   className={`week-day-card ${workout ? "has-workout" : "rest"} ${tod ? "today" : ""}`}
                   onClick={() => {
                     setShowScheduleEditor(true);
-                    triggerHaptic();
+                    haptic();
                   }}
                 >
                   <div className="week-day-name">{dayName}</div>
@@ -1722,13 +2172,12 @@ export default function FitnessPage() {
             )}
           </div>
 
-          {/* Detailed list of scheduled days */}
-          {hasAnySchedule && (
+          {hasSchedule && (
             <div className="schedule-detail-list">
-              {weekWithWorkouts
+              {weekWithData
                 .filter((d) => d.workout)
-                .map(({ date, dateStr, dayName, workout }) => (
-                  <div key={dateStr} className="schedule-detail-item">
+                .map(({ date, ds, dayName, workout }) => (
+                  <div key={ds} className="schedule-detail-item">
                     <div className="sched-item-left">
                       <div className="sched-item-day">
                         {dayName}, {date.getDate()}
@@ -1749,33 +2198,30 @@ export default function FitnessPage() {
                     <button
                       className="sched-item-remove"
                       type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setScheduleMap((prev) => {
-                          const n = { ...prev };
-                          delete n[dateStr];
+                      onClick={() => {
+                        setScheduleMap((p) => {
+                          const n = { ...p };
+                          delete n[ds];
                           return n;
                         });
-                        triggerHaptic();
+                        haptic();
                       }}
                     >
-                      <Icon.X s={14} />
+                      <I.X s={14} />
                     </button>
                   </div>
                 ))}
-
-              {/* Clear week button */}
               <button
                 className="btn-clear-week"
                 type="button"
                 onClick={() => {
-                  const weekStrs = new Set(weekDates.map(fmt));
-                  setScheduleMap((prev) =>
+                  const ws = new Set(weekDates.map(fmt));
+                  setScheduleMap((p) =>
                     Object.fromEntries(
-                      Object.entries(prev).filter(([k]) => !weekStrs.has(k)),
+                      Object.entries(p).filter(([k]) => !ws.has(k)),
                     ),
                   );
-                  triggerHaptic("medium");
+                  haptic("medium");
                 }}
               >
                 Очистить всю неделю
@@ -1783,14 +2229,13 @@ export default function FitnessPage() {
             </div>
           )}
 
-          {!hasAnySchedule && allWorkouts.length > 0 && (
+          {!hasSchedule && allWorkouts.length > 0 && (
             <div className="sched-empty-hint">
               <div className="sched-empty-hint-text">
                 Нажми «Изменить» чтобы назначить тренировки на дни
               </div>
             </div>
           )}
-
           {allWorkouts.length === 0 && (
             <div className="sched-empty-hint">
               <div className="sched-empty-hint-text">
@@ -1801,9 +2246,7 @@ export default function FitnessPage() {
         </>
       )}
 
-      {/* ════════════════════════════════
-          TAB: КАТАЛОГ
-      ════════════════════════════════ */}
+      {/* ════ TAB: КАТАЛОГ ════ */}
       {mainTab === "catalog" && (
         <>
           <div className="sub-switch">
@@ -1812,7 +2255,7 @@ export default function FitnessPage() {
               type="button"
               onClick={() => {
                 setCatSubTab("catalog");
-                triggerHaptic();
+                haptic();
               }}
             >
               Каталог
@@ -1822,10 +2265,10 @@ export default function FitnessPage() {
               type="button"
               onClick={() => {
                 setCatSubTab("mine");
-                triggerHaptic();
+                haptic();
               }}
             >
-              Мои программы
+              Мои программы{" "}
               {programs.length > 0 && (
                 <span className="sub-tab-badge">{programs.length}</span>
               )}
@@ -1842,7 +2285,7 @@ export default function FitnessPage() {
                     type="button"
                     onClick={() => {
                       setCatFilter(f);
-                      triggerHaptic();
+                      haptic();
                     }}
                   >
                     {{ all: "Все", free: "Бесплатные", paid: "Платные" }[f]}
@@ -1861,7 +2304,7 @@ export default function FitnessPage() {
                     className="catalog-card"
                     onClick={() => {
                       setCatalogItem(item);
-                      triggerHaptic();
+                      haptic();
                     }}
                   >
                     <div
@@ -1870,7 +2313,7 @@ export default function FitnessPage() {
                     >
                       {item.isPaid ? (
                         <div className="catalog-price">
-                          <Icon.Star /> {item.priceStars}
+                          <I.Star /> {item.priceStars}
                         </div>
                       ) : (
                         <div className="catalog-price free">Бесплатно</div>
@@ -1907,7 +2350,7 @@ export default function FitnessPage() {
                   style={{ marginTop: 20 }}
                   onClick={() => {
                     setMainTab("personal");
-                    triggerHaptic("medium");
+                    haptic("medium");
                   }}
                 >
                   Создать программу
@@ -1922,7 +2365,7 @@ export default function FitnessPage() {
                     onClick={() => {
                       setActiveProgramId(prog.id);
                       setScreen("program-detail");
-                      triggerHaptic();
+                      haptic();
                     }}
                   >
                     <div
@@ -1932,7 +2375,7 @@ export default function FitnessPage() {
                       <div className="program-card-cover-actions">
                         {prog.forSale && (
                           <div className="program-sale-badge">
-                            <Icon.Star s={11} /> {prog.priceStars}
+                            <I.Star s={11} /> {prog.priceStars}
                           </div>
                         )}
                         <button
@@ -1940,10 +2383,10 @@ export default function FitnessPage() {
                           type="button"
                           onClick={(e) => {
                             e.stopPropagation();
-                            shareProgram(prog.title, prog.id);
+                            shareWorkout(prog.title, prog.id);
                           }}
                         >
-                          <Icon.Share s={14} />
+                          <I.Share s={14} />
                         </button>
                       </div>
                     </div>
@@ -1965,17 +2408,16 @@ export default function FitnessPage() {
                     setNpWeeks(4);
                     setNpCoverIdx(0);
                     setScreen("create-program");
-                    triggerHaptic("medium");
+                    haptic("medium");
                   }}
                 >
-                  <Icon.Plus /> Создать программу
+                  <I.Plus /> Создать программу
                 </button>
               </div>
             ))}
         </>
       )}
 
-      {/* ── SCHEDULE EDITOR ── */}
       {showScheduleEditor && (
         <ScheduleEditor
           allWorkouts={allWorkouts}
@@ -1986,7 +2428,6 @@ export default function FitnessPage() {
         />
       )}
 
-      {/* ── CATALOG BOTTOM SHEET ── */}
       {catalogItem && (
         <div className="sheet-overlay-wrap">
           <div className="sheet-overlay" onClick={() => setCatalogItem(null)} />
@@ -2052,7 +2493,7 @@ export default function FitnessPage() {
                     type="button"
                     onClick={() => {
                       setPurchasedIds((p) => [...p, catalogItem.id]);
-                      triggerHaptic("medium");
+                      haptic("medium");
                     }}
                   >
                     Купить за ★ {catalogItem.priceStars}
@@ -2076,7 +2517,7 @@ export default function FitnessPage() {
                       setPrograms((p) => [...p, prog]);
                       setCatalogItem(null);
                       setCatSubTab("mine");
-                      triggerHaptic("medium");
+                      haptic("medium");
                     }}
                   >
                     Добавить в мои
@@ -2090,119 +2531,3 @@ export default function FitnessPage() {
     </div>
   );
 }
-
-/* ── CATALOG DATA ── */
-const CATALOG_ITEMS: CatalogItem[] = [
-  {
-    id: "c1",
-    title: "Сушка 6 недель",
-    author: "Coach Vera",
-    level: "Продвинутый",
-    duration: "50–70 мин",
-    focus: "Рельеф",
-    equipment: "Зал",
-    isPaid: true,
-    priceStars: 120,
-    cover: "linear-gradient(140deg,#0f0f0f,#2a2a2a)",
-    description:
-      "Программа с прогрессией нагрузки и контролем объёмов. 4 тренировки в неделю.",
-    items: [
-      "Разминка 10 мин",
-      "Силовой блок 40 мин",
-      "HIIT финишер 10 мин",
-      "Заминка 10 мин",
-    ],
-  },
-  {
-    id: "c2",
-    title: "Тонус дома",
-    author: "Fit Home Lab",
-    level: "Начальный",
-    duration: "25–35 мин",
-    focus: "Тонус",
-    equipment: "Без инвентаря",
-    isPaid: false,
-    priceStars: 0,
-    cover: "linear-gradient(140deg,#1666b0,#4a9de0)",
-    description: "Мягкий вход в тренировки: короткие сессии, без прыжков.",
-    items: [
-      "Разминка 5 мин",
-      "Низ тела 15 мин",
-      "Корпус 10 мин",
-      "Растяжка 5 мин",
-    ],
-  },
-  {
-    id: "c3",
-    title: "Сила + Кардио",
-    author: "Urban Gym",
-    level: "Средний",
-    duration: "40–55 мин",
-    focus: "Выносливость",
-    equipment: "Гантели",
-    isPaid: true,
-    priceStars: 80,
-    cover: "linear-gradient(140deg,#101010,#606060)",
-    description:
-      "Чередование силовых и кардио блоков для стабильного прогресса.",
-    items: [
-      "Разминка 8 мин",
-      "Силовой блок 20 мин",
-      "Кардио блок 15 мин",
-      "Заминка 5 мин",
-    ],
-  },
-  {
-    id: "c4",
-    title: "Здоровая спина",
-    author: "Balance Studio",
-    level: "Начальный",
-    duration: "30–40 мин",
-    focus: "Осанка",
-    equipment: "Коврик",
-    isPaid: false,
-    priceStars: 0,
-    cover: "linear-gradient(140deg,#0d5c4a,#2a9d7a)",
-    description:
-      "Укрепление кора и раскрытие грудного отдела для офисного ритма.",
-    items: [
-      "Разогрев 6 мин",
-      "Кор 14 мин",
-      "Мобильность 12 мин",
-      "Дыхание 5 мин",
-    ],
-  },
-  {
-    id: "c5",
-    title: "HIIT 20 мин",
-    author: "Fast Lab",
-    level: "Средний",
-    duration: "20 мин",
-    focus: "Жиросжигание",
-    equipment: "Без инвентаря",
-    isPaid: false,
-    priceStars: 0,
-    cover: "linear-gradient(140deg,#2a0d0d,#8b2020)",
-    description: "Интенсивные 20 минут: 8 кругов по 4 упражнения.",
-    items: ["Разминка 3 мин", "8 кругов HIIT", "Заминка 3 мин"],
-  },
-  {
-    id: "c6",
-    title: "Пилатес PRO",
-    author: "Studio Move",
-    level: "Средний",
-    duration: "45 мин",
-    focus: "Мобильность",
-    equipment: "Коврик",
-    isPaid: true,
-    priceStars: 60,
-    cover: "linear-gradient(140deg,#1a0a2e,#5a2d82)",
-    description:
-      "Пилатес с фокусом на глубокий кор, осанку и подвижность суставов.",
-    items: [
-      "Активация кора 10 мин",
-      "Основной блок 25 мин",
-      "Стретчинг 10 мин",
-    ],
-  },
-];
