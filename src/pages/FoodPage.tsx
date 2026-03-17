@@ -225,10 +225,7 @@ export default function FoodPage({ onOpenProfile }: FoodPageProps) {
   return (
     <div className="food-page">
       {/* ── TOP NAV ── */}
-      <div
-        className="top-nav animate-in"
-        style={{ "--i": 0 } as CSSProperties}
-      >
+      <div className="top-nav animate-in" style={{ "--i": 0 } as CSSProperties}>
         <div className="streak-badge">🔥 12 дней</div>
         <div
           className="food-avatar"
@@ -409,20 +406,15 @@ export default function FoodPage({ onOpenProfile }: FoodPageProps) {
         style={{ "--i": 9 } as CSSProperties}
       >
         {COUNTERS.map((c) => {
-          const isWater = c.id === "water";
           const fillPct = Math.min((counters[c.id] / c.goal) * 100, 100);
 
           return (
-            <div
-              className={`counter-item card counter-${c.id}`}
-              key={c.id}
-            >
-              {isWater && (
-                <div
-                  className="water-fill"
-                  style={{ height: `${fillPct}%` }}
-                ></div>
-              )}
+            <div className={`counter-item card counter-${c.id}`} key={c.id}>
+              {/* Универсальная заливка для всех трекеров */}
+              <div
+                className={`tracker-fill fill-${c.id}`}
+                style={{ height: `${fillPct}%` }}
+              ></div>
 
               <div className="counter-top">
                 <span className="counter-icon">{c.icon}</span>

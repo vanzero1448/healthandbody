@@ -1,5 +1,4 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
-import type { CSSProperties } from "react";
 import { getTelegramWebApp } from "../telegram";
 import type { TelegramHapticStyle } from "../telegram";
 import "./FitnessPage.css";
@@ -345,117 +344,19 @@ const CATALOG_ITEMS: CatalogItem[] = [
   },
 ];
 
+const PERSONAL_PROGRAM_ID = "personal";
+
 const INITIAL_PROGRAMS: Program[] = [
   {
-    id: "p1",
-    title: "Сила 3×",
-    description: "Базовые движения + прогрессия нагрузки каждые 2 недели.",
-    level: "Средний",
+    id: PERSONAL_PROGRAM_ID,
+    title: "Мои тренировки",
+    description: "Личные тренировки, которые ты создал(а).",
+    level: LEVELS[0],
     weeks: 4,
     cover: COVERS[0],
     forSale: false,
-    priceStars: 99,
-    workouts: [
-      {
-        id: "w1",
-        title: "День A — Жим",
-        duration: "50 мин",
-        focus: "Грудь",
-        color: "#111111",
-        exercises: [
-          {
-            id: "e1",
-            name: "Жим штанги лёжа",
-            sets: 4,
-            reps: "6–8",
-            rest: "2 мин",
-            note: "",
-          },
-          {
-            id: "e2",
-            name: "Жим гантелей лёжа",
-            sets: 3,
-            reps: "10–12",
-            rest: "90 сек",
-            note: "",
-          },
-          {
-            id: "e3",
-            name: "Тяга верхнего блока",
-            sets: 3,
-            reps: "10–12",
-            rest: "90 сек",
-            note: "",
-          },
-        ],
-      },
-      {
-        id: "w2",
-        title: "День B — Ноги",
-        duration: "55 мин",
-        focus: "Ноги",
-        color: "#1666b0",
-        exercises: [
-          {
-            id: "e4",
-            name: "Присед со штангой",
-            sets: 4,
-            reps: "5–7",
-            rest: "3 мин",
-            note: "",
-          },
-          {
-            id: "e5",
-            name: "Жим ногами",
-            sets: 3,
-            reps: "10–12",
-            rest: "2 мин",
-            note: "",
-          },
-          {
-            id: "e6",
-            name: "Румынская тяга",
-            sets: 3,
-            reps: "10–12",
-            rest: "90 сек",
-            note: "",
-          },
-        ],
-      },
-      {
-        id: "w3",
-        title: "День C — Спина",
-        duration: "50 мин",
-        focus: "Спина",
-        color: "#0d5c4a",
-        exercises: [
-          {
-            id: "e7",
-            name: "Становая тяга",
-            sets: 4,
-            reps: "4–6",
-            rest: "3 мин",
-            note: "",
-          },
-          {
-            id: "e8",
-            name: "Тяга штанги в наклоне",
-            sets: 3,
-            reps: "8–10",
-            rest: "2 мин",
-            note: "",
-          },
-          {
-            id: "e9",
-            name: "Подтягивания",
-            sets: 3,
-            reps: "max",
-            rest: "2 мин",
-            note: "С весом если возможно",
-          },
-        ],
-      },
-    ],
+    priceStars: 0,
+    workouts: [],
   },
 ];
 
@@ -1051,165 +952,7 @@ function ExerciseEditor({
   );
 }
 
-/* ══════════════════════════════════════════════
-   SCHEDULE EDITOR
-══════════════════════════════════════════════ */
 type FlatWorkout = Workout & { programId: string; programTitle: string };
-
-function ScheduleEditor({
-  allWorkouts,
-  weekDates,
-  scheduleMap,
-  onApply,
-  onClose,
-}: {
-  allWorkouts: FlatWorkout[];
-  weekDates: Date[];
-  scheduleMap: ScheduleMap;
-  onApply: (m: ScheduleMap) => void;
-  onClose: () => void;
-}) {
-  const [local, setLocal] = useState<ScheduleMap>({ ...scheduleMap });
-
-  const toggle = (ds: string, w: FlatWorkout) => {
-    haptic();
-    setLocal((prev) => {
-      if (prev[ds]?.workoutId === w.id) {
-        const n = { ...prev };
-        delete n[ds];
-        return n;
-      }
-      return { ...prev, [ds]: { workoutId: w.id, programId: w.programId } };
-    });
-  };
-
-  const applyPattern = (w: FlatWorkout, days: number[]) => {
-    haptic("medium");
-    setLocal((prev) => {
-      const n = { ...prev };
-      weekDates.forEach((d, i) => {
-        if (days.includes(i))
-          n[fmt(d)] = { workoutId: w.id, programId: w.programId };
-      });
-      return n;
-    });
-  };
-
-  return (
-    <div className="sheet-overlay-wrap">
-      <div className="sheet-overlay" onClick={onClose} />
-      <div className="bottom-sheet schedule-sheet">
-        <div className="sheet-handle-bar" />
-        <div className="schedule-sheet-header">
-          <span className="schedule-sheet-title">Расписание недели</span>
-          <div className="schedule-sheet-actions">
-            <button
-              type="button"
-              className="sched-clear-btn"
-              onClick={() => {
-                setLocal({});
-                haptic("medium");
-              }}
-            >
-              Очистить
-            </button>
-            <button
-              type="button"
-              className="sched-done-btn"
-              onClick={() => {
-                onApply(local);
-                haptic("medium");
-                onClose();
-              }}
-            >
-              <I.Check s={13} /> Готово
-            </button>
-          </div>
-        </div>
-        <div className="sched-day-row header-row">
-          <div className="sched-workout-col-label" />
-          {weekDates.map((d, i) => (
-            <div
-              key={i}
-              className={`sched-day-header ${isToday(d) ? "today" : ""}`}
-            >
-              <span className="sched-day-name">{DAYS_RU[i]}</span>
-              <span className="sched-day-num">{d.getDate()}</span>
-            </div>
-          ))}
-        </div>
-        <div className="sched-rows">
-          {allWorkouts.length === 0 ? (
-            <div className="sched-empty">Сначала создай тренировки</div>
-          ) : (
-            allWorkouts.map((w) => (
-              <div key={w.id} className="sched-row">
-                <div className="sched-workout-label">
-                  <span
-                    className="sched-wk-dot"
-                    style={{ background: w.color }}
-                  />
-                  <div>
-                    <div className="sched-wk-name">{w.title}</div>
-                    <div className="sched-wk-prog">{w.programTitle}</div>
-                  </div>
-                </div>
-                {weekDates.map((d, i) => {
-                  const ds = fmt(d);
-                  const active = local[ds]?.workoutId === w.id;
-                  return (
-                    <div
-                      key={i}
-                      className={`sched-cell ${active ? "active" : ""}`}
-                      style={
-                        { "--cell-color": w.color } as CSSProperties
-                      }
-                      onClick={() => toggle(ds, w)}
-                    >
-                      {active && <I.Check s={12} />}
-                    </div>
-                  );
-                })}
-              </div>
-            ))
-          )}
-        </div>
-        {allWorkouts.length > 0 && (
-          <div className="sched-patterns">
-            <div className="sched-patterns-title">Быстрые шаблоны</div>
-            {allWorkouts.slice(0, 4).map((w) => (
-              <div key={w.id} className="sched-pattern-row">
-                <div className="sched-pattern-label">
-                  <span
-                    className="sched-wk-dot"
-                    style={{ background: w.color }}
-                  />
-                  <span className="sched-pattern-name">{w.title}</span>
-                </div>
-                <div className="sched-pattern-btns">
-                  {[
-                    { label: "Пн Ср Пт", days: [0, 2, 4] },
-                    { label: "Вт Чт Сб", days: [1, 3, 5] },
-                    { label: "Пн–Пт", days: [0, 1, 2, 3, 4] },
-                  ].map((p) => (
-                    <button
-                      key={p.label}
-                      type="button"
-                      className="sched-pattern-btn"
-                      onClick={() => applyPattern(w, p.days)}
-                    >
-                      {p.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
 
 /* ══════════════════════════════════════════════
    PAGE HEADER
@@ -1232,14 +975,16 @@ export default function FitnessPage() {
 
   const [programs, setPrograms] = useState<Program[]>(INITIAL_PROGRAMS);
   const [scheduleMap, setScheduleMap] = useState<ScheduleMap>({});
+  const [activeDay, setActiveDay] = useState<string | null>(null);
   const [purchasedIds, setPurchasedIds] = useState<string[]>([]);
   const [goal, setGoal] = useState<GoalType>("Рельеф");
   const [showGoalEdit, setShowGoalEdit] = useState(false);
   const [weekOffset, setWeekOffset] = useState(0);
-  const [showScheduleEditor, setShowScheduleEditor] = useState(false);
   const [catalogItem, setCatalogItem] = useState<CatalogItem | null>(null);
   const [catFilter, setCatFilter] = useState<"all" | "free" | "paid">("all");
-  const [activeProgramId, setActiveProgramId] = useState<string | null>(null);
+  const [activeProgramId, setActiveProgramId] = useState<string | null>(
+    PERSONAL_PROGRAM_ID,
+  );
   const [activeWorkoutId, setActiveWorkoutId] = useState<string | null>(null);
 
   /* New program form */
@@ -1274,7 +1019,12 @@ export default function FitnessPage() {
     });
   }, [weekOffset]);
 
-  const activeProgram = programs.find((p) => p.id === activeProgramId) ?? null;
+  const personalProgram =
+    programs.find((p) => p.id === PERSONAL_PROGRAM_ID) ?? null;
+  const activeProgram =
+    programs.find((p) => p.id === activeProgramId) ?? personalProgram ?? null;
+  const personalWorkouts = personalProgram?.workouts ?? [];
+  const userPrograms = programs.filter((p) => p.id !== PERSONAL_PROGRAM_ID);
   const allWorkouts = useMemo<FlatWorkout[]>(
     () =>
       programs.flatMap((p) =>
@@ -1290,11 +1040,13 @@ export default function FitnessPage() {
   /* Back */
   const handleBack = useCallback(() => {
     if (screen === "workout-edit") {
-      setScreen("program-detail");
+      setScreen(
+        activeProgramId === PERSONAL_PROGRAM_ID ? "main" : "program-detail",
+      );
       return;
     }
     setScreen("main");
-  }, [screen]);
+  }, [activeProgramId, screen]);
   useTelegramBack(handleBack, screen !== "main");
 
   /* Mutations */
@@ -1303,7 +1055,9 @@ export default function FitnessPage() {
       prev.map((p) => (p.id === id ? { ...p, ...patch } : p)),
     );
 
-  const openCreateWorkout = () => {
+  const openCreateWorkout = (programId?: string) => {
+    const targetId = programId ?? activeProgramId ?? PERSONAL_PROGRAM_ID;
+    if (targetId) setActiveProgramId(targetId);
     setWkTitle("");
     setWkDuration("");
     setWkFocus(FOCUS_OPTIONS[0]);
@@ -1314,7 +1068,9 @@ export default function FitnessPage() {
     haptic();
   };
 
-  const openEditWorkout = (wk: Workout) => {
+  const openEditWorkout = (wk: Workout, programId?: string) => {
+    const targetId = programId ?? activeProgramId ?? PERSONAL_PROGRAM_ID;
+    if (targetId) setActiveProgramId(targetId);
     setActiveWorkoutId(wk.id);
     setWkTitle(wk.title);
     setWkDuration(wk.duration);
@@ -1331,7 +1087,10 @@ export default function FitnessPage() {
   };
 
   const saveWorkout = () => {
-    if (!wkTitle.trim() || !activeProgramId) return;
+    const targetProgramId = activeProgramId ?? PERSONAL_PROGRAM_ID;
+    const targetProgram =
+      programs.find((p) => p.id === targetProgramId) ?? personalProgram;
+    if (!wkTitle.trim() || !targetProgramId || !targetProgram) return;
     if (wkIsNew) {
       const wk: Workout = {
         id: uid(),
@@ -1341,12 +1100,12 @@ export default function FitnessPage() {
         color: WORKOUT_COLORS[wkColorIdx],
         exercises: wkExercises,
       };
-      updateProgram(activeProgramId, {
-        workouts: [...(activeProgram?.workouts ?? []), wk],
+      updateProgram(targetProgramId, {
+        workouts: [...targetProgram.workouts, wk],
       });
     } else if (activeWorkoutId) {
-      updateProgram(activeProgramId, {
-        workouts: activeProgram!.workouts.map((w) =>
+      updateProgram(targetProgramId, {
+        workouts: targetProgram.workouts.map((w) =>
           w.id === activeWorkoutId
             ? {
                 ...w,
@@ -1360,14 +1119,19 @@ export default function FitnessPage() {
         ),
       });
     }
-    setScreen("program-detail");
+    setScreen(
+      targetProgramId === PERSONAL_PROGRAM_ID ? "main" : "program-detail",
+    );
     haptic("medium");
   };
 
-  const deleteWorkout = (wkId: string) => {
-    if (!activeProgramId) return;
-    updateProgram(activeProgramId, {
-      workouts: activeProgram!.workouts.filter((w) => w.id !== wkId),
+  const deleteWorkout = (wkId: string, programId?: string) => {
+    const targetProgramId = programId ?? activeProgramId ?? PERSONAL_PROGRAM_ID;
+    const targetProgram =
+      programs.find((p) => p.id === targetProgramId) ?? personalProgram;
+    if (!targetProgramId || !targetProgram) return;
+    updateProgram(targetProgramId, {
+      workouts: targetProgram.workouts.filter((w) => w.id !== wkId),
     });
     haptic();
   };
@@ -1494,6 +1258,30 @@ export default function FitnessPage() {
     };
   });
   const hasSchedule = weekWithData.some((d) => d.workout);
+  const activeDayData = activeDay
+    ? weekWithData.find((d) => d.ds === activeDay) ?? null
+    : null;
+
+  const assignWorkoutToDay = (wk: Workout) => {
+    if (!activeDay) return;
+    setScheduleMap((prev) => ({
+      ...prev,
+      [activeDay]: { workoutId: wk.id, programId: PERSONAL_PROGRAM_ID },
+    }));
+    setActiveDay(null);
+    haptic("medium");
+  };
+
+  const clearActiveDay = () => {
+    if (!activeDay) return;
+    setScheduleMap((prev) => {
+      const n = { ...prev };
+      delete n[activeDay];
+      return n;
+    });
+    setActiveDay(null);
+    haptic();
+  };
 
   /* ══════════════════════════════════════════════
      SCREEN: WORKOUT EDIT (create + edit merged)
@@ -1509,7 +1297,7 @@ export default function FitnessPage() {
             <label className="form-label">Название тренировки</label>
             <input
               className="form-input large"
-              placeholder="День A — Жим"
+              placeholder="Напр. Грудь + трицепс"
               value={wkTitle}
               onChange={(e) => setWkTitle(e.target.value)}
             />
@@ -1637,7 +1425,7 @@ export default function FitnessPage() {
           <button
             className="btn-text"
             type="button"
-            onClick={openCreateWorkout}
+            onClick={() => openCreateWorkout(activeProgram.id)}
           >
             <I.Plus /> Добавить
           </button>
@@ -2074,21 +1862,83 @@ export default function FitnessPage() {
               className="create-card manual-card"
               type="button"
               onClick={() => {
-                setNpTitle("");
-                setNpDesc("");
-                setNpWeeks(4);
-                setNpCoverIdx(0);
-                setScreen("create-program");
-                haptic("medium");
+                openCreateWorkout(PERSONAL_PROGRAM_ID);
               }}
             >
               <div className="create-card-icon">
                 <I.Pencil />
               </div>
               <div className="create-card-title">Вручную</div>
-              <div className="create-card-sub">Своя программа с нуля</div>
+              <div className="create-card-sub">Своя тренировка с нуля</div>
             </button>
           </div>
+
+          {/* My workouts */}
+          <div className="section-row" style={{ marginTop: 28 }}>
+            <h2>Мои тренировки</h2>
+            <button
+              className="btn-text"
+              type="button"
+              onClick={() => openCreateWorkout(PERSONAL_PROGRAM_ID)}
+            >
+              <I.Plus /> Добавить
+            </button>
+          </div>
+          {personalWorkouts.length === 0 ? (
+            <div className="empty-state small">
+              <div className="empty-sub">
+                Добавь первую тренировку вручную или с помощью AI
+              </div>
+            </div>
+          ) : (
+            <div className="workout-list">
+              {personalWorkouts.map((wk) => (
+                <div className="workout-card" key={wk.id}>
+                  <div
+                    className="workout-card-accent"
+                    style={{ background: wk.color }}
+                  />
+                  <div
+                    className="workout-card-main"
+                    onClick={() => openEditWorkout(wk, PERSONAL_PROGRAM_ID)}
+                  >
+                    <div>
+                      <div className="workout-card-title">{wk.title}</div>
+                      <div className="workout-card-meta">
+                        {wk.focus} · {wk.duration} · {wk.exercises.length} упр.
+                      </div>
+                    </div>
+                    <div className="workout-card-edit-hint">
+                      Ред. <I.ChevR s={16} />
+                    </div>
+                  </div>
+                  {wk.exercises.length > 0 && (
+                    <div className="workout-ex-preview">
+                      {wk.exercises.slice(0, 4).map((ex) => (
+                        <span key={ex.id} className="ex-preview-chip">
+                          {ex.name}
+                        </span>
+                      ))}
+                      {wk.exercises.length > 4 && (
+                        <span className="ex-preview-chip muted">
+                          +{wk.exercises.length - 4}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  <div className="workout-card-footer">
+                    <button
+                      className="btn-danger-sm"
+                      type="button"
+                      onClick={() => deleteWorkout(wk.id, PERSONAL_PROGRAM_ID)}
+                    >
+                      <I.Trash s={13} /> Удалить
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
 
           {/* Schedule */}
           <div className="section-row" style={{ marginTop: 36 }}>
@@ -2127,16 +1977,7 @@ export default function FitnessPage() {
                   ›
                 </button>
               </div>
-              <button
-                className="btn-edit-schedule"
-                type="button"
-                onClick={() => {
-                  setShowScheduleEditor(true);
-                  haptic();
-                }}
-              >
-                Изменить
-              </button>
+              <span className="section-hint">Нажми на день</span>
             </div>
           </div>
 
@@ -2147,7 +1988,7 @@ export default function FitnessPage() {
                   key={ds}
                   className={`week-day-card ${workout ? "has-workout" : "rest"} ${tod ? "today" : ""}`}
                   onClick={() => {
-                    setShowScheduleEditor(true);
+                    setActiveDay(ds);
                     haptic();
                   }}
                 >
@@ -2161,7 +2002,7 @@ export default function FitnessPage() {
                       style={{ background: workout.color }}
                     >
                       <span className="week-day-workout-name">
-                        {workout.title.split(" — ")[0]}
+                        {workout.title}
                       </span>
                     </div>
                   ) : (
@@ -2229,17 +2070,17 @@ export default function FitnessPage() {
             </div>
           )}
 
-          {!hasSchedule && allWorkouts.length > 0 && (
+          {!hasSchedule && personalWorkouts.length > 0 && (
             <div className="sched-empty-hint">
               <div className="sched-empty-hint-text">
-                Нажми «Изменить» чтобы назначить тренировки на дни
+                Нажми на день, чтобы добавить тренировку
               </div>
             </div>
           )}
-          {allWorkouts.length === 0 && (
+          {personalWorkouts.length === 0 && (
             <div className="sched-empty-hint">
               <div className="sched-empty-hint-text">
-                Сначала создай программу с тренировками
+                Сначала создай тренировку
               </div>
             </div>
           )}
@@ -2269,8 +2110,8 @@ export default function FitnessPage() {
               }}
             >
               Мои программы{" "}
-              {programs.length > 0 && (
-                <span className="sub-tab-badge">{programs.length}</span>
+              {userPrograms.length > 0 && (
+                <span className="sub-tab-badge">{userPrograms.length}</span>
               )}
             </button>
           </div>
@@ -2337,7 +2178,7 @@ export default function FitnessPage() {
           )}
 
           {catSubTab === "mine" &&
-            (programs.length === 0 ? (
+            (userPrograms.length === 0 ? (
               <div className="empty-state">
                 <div className="empty-icon">📋</div>
                 <div className="empty-title">Нет программ</div>
@@ -2349,7 +2190,7 @@ export default function FitnessPage() {
                   type="button"
                   style={{ marginTop: 20 }}
                   onClick={() => {
-                    setMainTab("personal");
+                    setScreen("create-program");
                     haptic("medium");
                   }}
                 >
@@ -2358,7 +2199,7 @@ export default function FitnessPage() {
               </div>
             ) : (
               <div className="program-list">
-                {programs.map((prog) => (
+                {userPrograms.map((prog) => (
                   <div
                     className="program-card"
                     key={prog.id}
@@ -2418,14 +2259,76 @@ export default function FitnessPage() {
         </>
       )}
 
-      {showScheduleEditor && (
-        <ScheduleEditor
-          allWorkouts={allWorkouts}
-          weekDates={weekDates}
-          scheduleMap={scheduleMap}
-          onApply={setScheduleMap}
-          onClose={() => setShowScheduleEditor(false)}
-        />
+      {activeDayData && (
+        <div className="sheet-overlay-wrap">
+          <div className="sheet-overlay" onClick={() => setActiveDay(null)} />
+          <div className="bottom-sheet day-assign-sheet">
+            <div className="sheet-handle-bar" />
+            <div className="day-assign-header">
+              <div>
+                <div className="day-assign-title">Выбери тренировку</div>
+                <div className="day-assign-date">
+                  {activeDayData.dayName}, {activeDayData.date.getDate()}
+                </div>
+              </div>
+              <button
+                className="btn-ghost"
+                type="button"
+                onClick={() => setActiveDay(null)}
+              >
+                Закрыть
+              </button>
+            </div>
+
+            {personalWorkouts.length === 0 ? (
+              <div className="day-assign-empty">
+                <div className="empty-sub">
+                  Сначала создай тренировку
+                </div>
+                <button
+                  className="btn-primary"
+                  type="button"
+                  onClick={() => openCreateWorkout(PERSONAL_PROGRAM_ID)}
+                >
+                  Создать тренировку
+                </button>
+              </div>
+            ) : (
+              <div className="day-assign-list">
+                {personalWorkouts.map((wk) => (
+                  <button
+                    key={wk.id}
+                    type="button"
+                    className="day-assign-card"
+                    onClick={() => assignWorkoutToDay(wk)}
+                  >
+                    <span
+                      className="day-assign-dot"
+                      style={{ background: wk.color }}
+                    />
+                    <div className="day-assign-main">
+                      <div className="day-assign-name">{wk.title}</div>
+                      <div className="day-assign-meta">
+                        {wk.focus} · {wk.duration} · {wk.exercises.length} упр.
+                      </div>
+                    </div>
+                    <span className="day-assign-action">Добавить</span>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {activeDayData.workout && (
+              <button
+                className="day-assign-clear"
+                type="button"
+                onClick={clearActiveDay}
+              >
+                Убрать тренировку
+              </button>
+            )}
+          </div>
+        </div>
       )}
 
       {catalogItem && (
