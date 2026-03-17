@@ -1,4 +1,5 @@
 import { useState } from "react";
+import type { CSSProperties } from "react";
 import { getTelegramWebApp } from "../telegram";
 import type { TelegramHapticStyle } from "../telegram";
 import "./FoodPage.css";
@@ -115,6 +116,7 @@ function RadialProgress({
   const r = (size - strokeWidth) / 2;
   const circ = 2 * Math.PI * r;
   const pct = Math.min(value / goal, 1);
+  const dash = pct * circ;
 
   return (
     <div className="radial-wrapper">
@@ -135,10 +137,13 @@ function RadialProgress({
           stroke={color}
           strokeWidth={strokeWidth}
           strokeLinecap="round"
-          strokeDasharray={`${pct * circ} ${circ}`}
-          style={{
-            transition: "stroke-dasharray 1s cubic-bezier(0.16, 1, 0.3, 1)",
-          }}
+          className="radial-bar"
+          style={
+            {
+              "--dash": `${dash}`,
+              "--circ": `${circ}`,
+            } as CSSProperties
+          }
         />
       </svg>
     </div>
@@ -151,6 +156,7 @@ function CalorieRing({ consumed, goal }: { consumed: number; goal: number }) {
   const r = (size - sw) / 2;
   const circ = 2 * Math.PI * r;
   const pct = Math.min(consumed / goal, 1);
+  const dash = pct * circ;
   const remaining = Math.max(goal - consumed, 0);
 
   return (
@@ -172,10 +178,13 @@ function CalorieRing({ consumed, goal }: { consumed: number; goal: number }) {
           stroke="#000000"
           strokeWidth={sw}
           strokeLinecap="round"
-          strokeDasharray={`${pct * circ} ${circ}`}
-          style={{
-            transition: "stroke-dasharray 1.2s cubic-bezier(0.16, 1, 0.3, 1)",
-          }}
+          className="radial-bar"
+          style={
+            {
+              "--dash": `${dash}`,
+              "--circ": `${circ}`,
+            } as CSSProperties
+          }
         />
       </svg>
       <div className="calorie-hero-inner">
@@ -232,7 +241,10 @@ export default function FoodPage({ onOpenProfile }: FoodPageProps) {
   return (
     <div className="food-page">
       {/* ── TOP NAV ── */}
-      <div className="top-nav">
+      <div
+        className="top-nav animate-in"
+        style={{ "--i": 0 } as CSSProperties}
+      >
         <div className="streak-badge">🔥 12 дней</div>
         <div
           className="food-avatar"
@@ -247,7 +259,10 @@ export default function FoodPage({ onOpenProfile }: FoodPageProps) {
       </div>
 
       {/* ── DATES GRID ── */}
-      <div className="dates-grid">
+      <div
+        className="dates-grid animate-in"
+        style={{ "--i": 1 } as CSSProperties}
+      >
         {WEEK_DATES.map((d, i) => {
           const isActive = d.date === activeDate;
           return (
@@ -264,7 +279,10 @@ export default function FoodPage({ onOpenProfile }: FoodPageProps) {
       </div>
 
       {/* ── HERO SECTION ── */}
-      <div className="hero-section">
+      <div
+        className="hero-section animate-in"
+        style={{ "--i": 2 } as CSSProperties}
+      >
         <CalorieRing consumed={1950} goal={2400} />
 
         {/* Минималистичный AI-совет */}
@@ -283,14 +301,20 @@ export default function FoodPage({ onOpenProfile }: FoodPageProps) {
       </div>
 
       {/* ── MACROS ── */}
-      <div className="section-header">
+      <div
+        className="section-header animate-in"
+        style={{ "--i": 3 } as CSSProperties}
+      >
         <span>Цели КБЖУ</span>
         <button className="btn-icon-only" onClick={() => triggerHaptic()}>
           <EditIcon />
         </button>
       </div>
 
-      <div className="macros-row">
+      <div
+        className="macros-row animate-in"
+        style={{ "--i": 4 } as CSSProperties}
+      >
         {MACROS.map((m) => (
           <div className="macro-item card" key={m.label}>
             <div className="macro-ring-box">
@@ -313,7 +337,10 @@ export default function FoodPage({ onOpenProfile }: FoodPageProps) {
       </div>
 
       {/* ── HEALTH GRID ── */}
-      <div className="health-grid">
+      <div
+        className="health-grid animate-in"
+        style={{ "--i": 5 } as CSSProperties}
+      >
         <div className="card health-card">
           <div className="health-header">
             <span className="health-title">Вес</span>
@@ -346,11 +373,17 @@ export default function FoodPage({ onOpenProfile }: FoodPageProps) {
       </div>
 
       {/* ── MEALS ── */}
-      <div className="section-header">
+      <div
+        className="section-header animate-in"
+        style={{ "--i": 6 } as CSSProperties}
+      >
         <span>Приемы пищи</span>
       </div>
 
-      <div className="meals-list">
+      <div
+        className="meals-list animate-in"
+        style={{ "--i": 7 } as CSSProperties}
+      >
         {MEALS.map((meal) => (
           <div className="meal-item card" key={meal.name}>
             <div className="meal-info">
@@ -380,11 +413,17 @@ export default function FoodPage({ onOpenProfile }: FoodPageProps) {
       </div>
 
       {/* ── COUNTERS ── */}
-      <div className="section-header">
+      <div
+        className="section-header animate-in"
+        style={{ "--i": 8 } as CSSProperties}
+      >
         Трекинг
         <span className="section-sub-header">4 из 10</span>
       </div>
-      <div className="counter-grid">
+      <div
+        className="counter-grid animate-in"
+        style={{ "--i": 9 } as CSSProperties}
+      >
         {COUNTERS.map((c) => {
           const isWater = c.id === "water";
           const fillPct = Math.min((counters[c.id] / c.goal) * 100, 100);
