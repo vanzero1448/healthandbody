@@ -193,7 +193,11 @@ const EditIcon = ({ size = 20 }: { size?: number }) => (
   </svg>
 );
 
-export default function FoodPage() {
+interface FoodPageProps {
+  onOpenProfile?: () => void;
+}
+
+export default function FoodPage({ onOpenProfile }: FoodPageProps) {
   const [activeDate, setActiveDate] = useState("17");
   const [counters, setCounters] = useState<Record<CounterId, number>>({
     water: 1400,
@@ -220,7 +224,16 @@ export default function FoodPage() {
       {/* ── TOP NAV ── */}
       <div className="top-nav">
         <div className="streak-badge">🔥 12 дней</div>
-        <div className="food-avatar"></div>
+        <div
+          className="food-avatar"
+          role="button"
+          aria-label="Профиль"
+          onClick={() => {
+            triggerHaptic("light");
+            onOpenProfile?.();
+          }}
+          style={{ cursor: onOpenProfile ? "pointer" : "default" }}
+        ></div>
       </div>
 
       {/* ── DATES GRID ── */}

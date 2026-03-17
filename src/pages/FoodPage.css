@@ -41,7 +41,7 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 24px 0 16px;
+  padding: 16px 0 12px;
 }
 
 .streak-badge {

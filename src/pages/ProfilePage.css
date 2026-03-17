@@ -1,7 +1,8 @@
 .profile-page {
   max-width: 480px;
   margin: 0 auto;
-  padding: 24px 20px 40px;
+  padding: 0 20px 40px;
+  padding-top: 8px;
   background-color: var(--bg-app);
   min-height: 100vh;
   animation: slideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
@@ -16,6 +17,32 @@
     opacity: 1;
     transform: translateX(0);
   }
+}
+
+/* ── TOP BAR ── */
+.profile-topbar {
+  display: flex;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.profile-back {
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  color: var(--text-main);
+  font-size: 14px;
+  font-weight: 700;
+  padding: 8px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition:
+    transform 0.12s ease,
+    background 0.12s ease;
+}
+
+.profile-back:active {
+  transform: scale(0.96);
+  background: var(--bg-card-hover);
 }
 
 /* ── HEADER ── */

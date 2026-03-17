@@ -2,10 +2,13 @@ import { useState, useEffect } from "react";
 import { AppRoot } from "@telegram-apps/telegram-ui";
 import { BottomNav } from "./components/BottomNav";
 import FoodPage from "./pages/FoodPage";
+import ProfilePage from "./pages/ProfilePage";
 import "./App.css";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState("food");
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [hasTgBack, setHasTgBack] = useState(false);
 
   // Telegram WebApp initialization
   useEffect(() => {
@@ -52,34 +55,71 @@ export default function App() {
     }
   }, []);
 
+  useEffect(() => {
+    const tg = (window as any).Telegram?.WebApp;
+    const backButton = tg?.BackButton;
+    if (!backButton) {
+      setHasTgBack(false);
+      return;
+    }
+    setHasTgBack(true);
+    const handleBack = () => setIsProfileOpen(false);
+    backButton.onClick(handleBack);
+    if (isProfileOpen) {
+      backButton.show();
+    } else {
+      backButton.hide();
+    }
+    return () => {
+      if (backButton.offClick) backButton.offClick(handleBack);
+    };
+  }, [isProfileOpen]);
+
   return (
     <AppRoot>
       <div className="app-shell">
-        {activeTab === "food" && <FoodPage />}
+        {isProfileOpen ? (
+          <ProfilePage
+            onClose={() => setIsProfileOpen(false)}
+            showInlineBack={!hasTgBack}
+          />
+        ) : (
+          <>
+            {activeTab === "food" && (
+              <FoodPage onOpenProfile={() => setIsProfileOpen(true)} />
+            )}
 
-        {activeTab === "fitness" && (
-          <div
-            style={{
-              padding: "20px 16px",
-              textAlign: "center",
-              color: "var(--text)",
-              marginTop: 60,
-            }}
-          >
-            <div style={{ fontSize: 48, marginBottom: 12 }}>🏋️</div>
-            <p
-              style={{ fontWeight: 700, fontSize: 18, color: "var(--text-h)" }}
-            >
-              Тренировки
-            </p>
-            <p style={{ fontSize: 14, marginTop: 6 }}>
-              Скоро здесь появятся твои тренировки
-            </p>
-          </div>
+            {activeTab === "fitness" && (
+              <div
+                style={{
+                  padding: "20px 16px",
+                  textAlign: "center",
+                  color: "var(--text)",
+                  marginTop: 24,
+                }}
+              >
+                <div style={{ fontSize: 48, marginBottom: 12 }}>🏋️</div>
+                <p
+                  style={{
+                    fontWeight: 700,
+                    fontSize: 18,
+                    color: "var(--text-h)",
+                  }}
+                >
+                  Тренировки
+                </p>
+                <p style={{ fontSize: 14, marginTop: 6 }}>
+                  Скоро здесь появятся твои тренировки
+                </p>
+              </div>
+            )}
+          </>
         )}
       </div>
 
-      <BottomNav activeTab={activeTab} setActiveTab={setActiveTab} />
+      {!isProfileOpen && (
+        <BottomNav activeTab={activeTab} setActiveTab={setActiveTab} />
+      )}
     </AppRoot>
   );
 }
