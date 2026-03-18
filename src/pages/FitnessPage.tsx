@@ -1,9 +1,10 @@
+// FitnessPage.tsx - Полная улучшенная версия в dark premium стиле
 import { useState, useMemo, useEffect, useCallback } from "react";
 import { getTelegramWebApp } from "../telegram";
 import type { TelegramHapticStyle } from "../telegram";
+import "./FitnessPage.css";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-
 type Level = "Начальный" | "Средний" | "Продвинутый";
 type Screen = "main" | "player";
 type Tab = "personal" | "catalog";
@@ -27,7 +28,7 @@ interface ExerciseDraft {
 
 interface WorkoutDay {
   id: string;
-  dayLabel: string; // "День 1", "День 2", etc.
+  dayLabel: string;
   title: string;
   dur: string;
   focus: string;
@@ -54,26 +55,24 @@ interface Program {
   reviews?: number;
 }
 
-type ScheduleMap = Record<string, string>; // date -> workoutDayId
+type ScheduleMap = Record<string, string>;
 type CheckedMap = Record<string, boolean>;
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-
 const PALETTE = {
   blue: "#007AFF",
-  green: "#34C759",
-  orange: "#FF9500",
-  purple: "#BF5AF2",
-  red: "#FF3B30",
-  teal: "#32ADE6",
-  pink: "#FF375F",
-  indigo: "#5E5CE6",
-  mint: "#00C7BE",
-  yellow: "#FFD60A",
+  green: "#30d158",
+  orange: "#ff9f0a",
+  purple: "#bf5af2",
+  red: "#ff453a",
+  teal: "#32ade6",
+  pink: "#ff375f",
+  indigo: "#5e5ce6",
+  mint: "#00c7be",
+  yellow: "#ffd60a",
 };
 
 const WK_COLORS = Object.values(PALETTE);
-
 const COVERS: string[] = [
   "linear-gradient(145deg, #0f0c29, #302b63, #24243e)",
   "linear-gradient(145deg, #1a1a2e, #e94560)",
@@ -127,306 +126,62 @@ const GOAL_CHIPS = [
 
 const uid = (): string => Math.random().toString(36).substr(2, 8);
 const fmtDate = (d: Date): string => d.toISOString().split("T")[0];
-const haptic = (s: TelegramHapticStyle = "light"): void =>
-  getTelegramWebApp()?.HapticFeedback?.impactOccurred(s);
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
+// ─── HAPTIC & TELEGRAM ────────────────────────────────────────────────────────
+const triggerHaptic = (style: TelegramHapticStyle = "light") => {
+  const tg = getTelegramWebApp();
+  if (tg?.HapticFeedback) {
+    tg.HapticFeedback.impactOccurred(style);
+  } else if (navigator.vibrate) {
+    navigator.vibrate(style === "heavy" ? 50 : style === "medium" ? 30 : 10);
+  }
+};
 
-const CSS = `
-@import url("https://fonts.googleapis.com/css2?family=SF+Pro+Display:wght@400;500;600;700;800;900&display=swap");
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap");
+const triggerSelectionHaptic = () => {
+  const tg = getTelegramWebApp();
+  if (tg?.HapticFeedback) {
+    tg.HapticFeedback.impactOccurred("light");
+  } else if (navigator.vibrate) {
+    navigator.vibrate(5);
+  }
+};
 
-*, *::before, *::after {
-  box-sizing: border-box;
-  margin: 0; padding: 0;
-  -webkit-tap-highlight-color: transparent;
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-}
+const triggerNotificationHaptic = (type: "success" | "warning" | "error") => {
+  const tg = getTelegramWebApp();
+  if (tg?.HapticFeedback) {
+    tg.HapticFeedback.impactOccurred(
+      type === "success" ? "light" : type === "warning" ? "medium" : "heavy",
+    );
+  } else if (navigator.vibrate) {
+    navigator.vibrate(type === "success" ? 50 : type === "warning" ? 100 : 200);
+  }
+};
 
-:root {
-  --bg: #f2f2f7;
-  --bg2: #e5e5ea;
-  --card: #ffffff;
-  --black: #000000;
-  --black2: #1c1c1e;
-  --blue: #007AFF;
-  --green: #34C759;
-  --orange: #FF9500;
-  --red: #FF3B30;
-  --purple: #BF5AF2;
-  --teal: #32ADE6;
-  --muted: #8e8e93;
-  --light: #c7c7cc;
-  --sep: rgba(0,0,0,0.08);
-  --shadow: 0 2px 12px rgba(0,0,0,0.08);
-  --shadow-lg: 0 8px 32px rgba(0,0,0,0.12);
-}
+const useTelegramBack = (onBack: () => void, isActive: boolean = true) => {
+  useEffect(() => {
+    if (!isActive) return;
+    const tg = getTelegramWebApp();
+    if (tg?.BackButton) {
+      const backButton = tg.BackButton;
+      backButton.show();
+      backButton.onClick(onBack);
+      return () => {
+        backButton.offClick(onBack);
+        backButton.hide();
+      };
+    }
+  }, [onBack, isActive]);
+};
 
-/* ── Layout ── */
-.fp { background: var(--bg); min-height: 100vh; max-width: 480px; margin: 0 auto; padding-bottom: 90px; overflow-x: hidden; }
-.fp-hdr { background: var(--bg); padding: 52px 20px 0; position: sticky; top: 0; z-index: 100; }
-.fp-title-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
-.fp-title { font-size: 34px; font-weight: 900; letter-spacing: -0.04em; color: var(--black); }
-.fp-streak { background: white; border-radius: 20px; padding: 6px 12px; font-size: 13px; font-weight: 700; color: var(--orange); border: 1px solid var(--sep); }
-.fp-tabs { display: flex; background: rgba(116,116,128,0.12); border-radius: 12px; padding: 2px; margin-bottom: 0; }
-.fp-tab { flex: 1; padding: 8px; border: none; background: transparent; font-size: 14px; font-weight: 600; color: var(--muted); border-radius: 10px; transition: all .2s; cursor: pointer; }
-.fp-tab.on { background: white; color: var(--black); box-shadow: var(--shadow); }
-.fp-body { padding: 16px 16px 0; }
-
-/* ── AI Card ── */
-.ai-card { background: var(--black2); border-radius: 24px; padding: 18px 18px 16px; margin-bottom: 14px; }
-.ai-top { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
-.ai-dot { width: 8px; height: 8px; border-radius: 4px; background: var(--purple); animation: pulse 2s infinite; }
-@keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.5;transform:scale(.85)} }
-.ai-lbl { font-size: 11px; font-weight: 800; letter-spacing: .1em; color: rgba(255,255,255,.45); text-transform: uppercase; }
-.ai-row { display: flex; gap: 9px; align-items: center; margin-bottom: 11px; }
-.ai-inp { flex: 1; background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.12); border-radius: 14px; padding: 11px 13px; color: white; font-size: 14px; font-weight: 500; outline: none; transition: border-color .15s; }
-.ai-inp:focus { border-color: rgba(255,255,255,.3); }
-.ai-inp::placeholder { color: rgba(255,255,255,.3); }
-.ai-send { width: 42px; height: 42px; border-radius: 13px; background: var(--purple); border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 18px; transition: transform .15s, opacity .15s; }
-.ai-send:active { transform: scale(.9); }
-.ai-send:disabled { opacity: .5; }
-.ai-chips { display: flex; gap: 6px; flex-wrap: wrap; }
-.chip { background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.1); color: rgba(255,255,255,.75); padding: 6px 12px; border-radius: 100px; font-size: 12px; font-weight: 600; cursor: pointer; transition: all .15s; }
-.chip.on { background: white; color: black; border-color: white; }
-.chip:active { transform: scale(.95); }
-
-/* ── Quick actions ── */
-.q-row { display: flex; gap: 10px; margin-bottom: 14px; }
-.q-btn { flex: 1; background: white; border: 1px solid var(--sep); border-radius: 16px; padding: 13px 10px; font-size: 13px; font-weight: 700; color: var(--black); cursor: pointer; transition: transform .1s; display: flex; align-items: center; justify-content: center; gap: 6px; }
-.q-btn:active { transform: scale(.97); }
-.q-btn-ico { font-size: 16px; }
-
-/* ── Section headers ── */
-.sec-hdr { display: flex; justify-content: space-between; align-items: center; margin: 20px 0 12px; }
-.sec-hdr h2 { font-size: 20px; font-weight: 800; letter-spacing: -.03em; }
-.sec-btn { background: none; border: none; color: var(--blue); font-size: 14px; font-weight: 600; cursor: pointer; }
-
-/* ── Calendar ── */
-.cal-wrap { background: white; border-radius: 22px; border: 1px solid var(--sep); overflow: hidden; margin-bottom: 14px; }
-.cal-hdr { padding: 14px 16px 10px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--sep); }
-.cal-month { font-size: 16px; font-weight: 800; flex: 1; }
-.cal-nav-btn { background: var(--bg); border: none; width: 30px; height: 30px; border-radius: 9px; font-size: 15px; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: background .15s; }
-.cal-nav-btn:active { background: var(--bg2); }
-.cal-legend { display: grid; grid-template-columns: repeat(7,1fr); padding: 8px 12px 4px; }
-.cal-leg-item { text-align: center; font-size: 10px; font-weight: 700; color: var(--muted); }
-.cal-grid { display: grid; grid-template-columns: repeat(7,1fr); gap: 3px; padding: 4px 12px 12px; }
-.cal-day { border-radius: 12px; padding: 7px 3px; display: flex; flex-direction: column; align-items: center; gap: 2px; cursor: pointer; transition: all .15s; min-height: 60px; justify-content: center; position: relative; }
-.cal-day:active { transform: scale(.88); }
-.cal-day.today { background: var(--black); color: white; }
-.cal-day.has-wk { background: rgba(0,122,255,.07); outline: 1.5px solid rgba(0,122,255,.25); }
-.cal-day.today.has-wk { background: var(--black); outline-color: var(--black); }
-.cal-day.past { opacity: .45; }
-.cal-day.empty { pointer-events: none; }
-.cdn { font-size: 10px; font-weight: 700; color: var(--muted); }
-.today .cdn { color: rgba(255,255,255,.55); }
-.cdnum { font-size: 16px; font-weight: 800; line-height: 1; }
-.cddot { width: 6px; height: 6px; border-radius: 3px; margin-top: 1px; }
-.today .cddot { background: white !important; }
-
-/* ── Program cards ── */
-.prog-card { background: white; border-radius: 22px; overflow: hidden; margin-bottom: 12px; cursor: pointer; border: 1px solid var(--sep); transition: transform .12s, box-shadow .12s; }
-.prog-card:active { transform: scale(.98); box-shadow: var(--shadow); }
-.prog-cov { height: 160px; position: relative; display: flex; align-items: flex-end; padding: 14px; }
-.prog-ov { position: absolute; inset: 0; background: linear-gradient(to top, rgba(0,0,0,.72) 0%, rgba(0,0,0,.1) 55%, transparent 100%); }
-.prog-info { position: relative; z-index: 1; flex: 1; }
-.prog-title { color: white; font-size: 20px; font-weight: 900; letter-spacing: -.03em; line-height: 1.2; margin-bottom: 3px; }
-.prog-auth { color: rgba(255,255,255,.6); font-size: 12px; font-weight: 600; }
-.prog-badge { position: absolute; top: 12px; right: 12px; z-index: 1; padding: 5px 10px; border-radius: 100px; font-size: 11px; font-weight: 800; }
-.b-paid { background: rgba(255,214,10,.9); color: #000; }
-.b-free { background: rgba(52,199,89,.18); color: #27ae60; backdrop-filter: blur(8px); }
-.b-owned { background: rgba(255,255,255,.2); color: white; backdrop-filter: blur(8px); }
-.prog-body { padding: 12px 14px 14px; }
-.prog-desc { font-size: 13px; color: var(--muted); line-height: 1.5; margin-bottom: 10px; }
-.tags { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
-.tag { background: var(--bg); padding: 4px 9px; border-radius: 7px; font-size: 11px; font-weight: 700; color: var(--muted); }
-.tag-accent { background: rgba(0,122,255,.1); color: var(--blue); }
-.prog-rating { display: flex; align-items: center; gap: 3px; font-size: 12px; font-weight: 700; color: var(--orange); margin-left: auto; }
-
-/* ── Modals / sheets ── */
-.overlay { position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 400; display: flex; align-items: flex-end; animation: fIn .2s; }
-@keyframes fIn { from{opacity:0} to{opacity:1} }
-.sheet { background: var(--bg); width: 100%; border-radius: 28px 28px 0 0; padding: 0 0 50px; max-height: 92vh; overflow-y: auto; animation: sUp .32s cubic-bezier(.16,1,.3,1); display: flex; flex-direction: column; }
-@keyframes sUp { from{transform:translateY(100%)} to{transform:translateY(0)} }
-.sheet-handle-bar { padding: 10px 0 6px; display: flex; justify-content: center; flex-shrink: 0; }
-.shdl { width: 40px; height: 4px; background: var(--light); border-radius: 2px; }
-.sheet-inner { padding: 0 18px; flex: 1; overflow-y: auto; }
-
-/* Sheet cover */
-.sh-cover { height: 200px; border-radius: 20px; position: relative; overflow: hidden; margin-bottom: 18px; }
-.sh-cover-ov { position: absolute; inset: 0; background: linear-gradient(to top, rgba(0,0,0,.75) 0%, transparent 55%); }
-.sh-cover-txt { position: absolute; bottom: 18px; left: 18px; right: 18px; }
-.sh-cover-txt h2 { color: white; font-size: 26px; font-weight: 900; letter-spacing: -.03em; margin-bottom: 4px; }
-.sh-cover-meta { color: rgba(255,255,255,.6); font-size: 13px; font-weight: 600; }
-.sh-cover-badge { position: absolute; top: 14px; right: 14px; }
-
-/* Stats row */
-.stats-row { display: flex; gap: 8px; margin-bottom: 18px; }
-.stat-box { flex: 1; background: white; border-radius: 14px; padding: 12px 10px; border: 1px solid var(--sep); }
-.stat-lbl { font-size: 10px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 4px; }
-.stat-val { font-size: 15px; font-weight: 800; color: var(--black); }
-
-/* Description tabs */
-.desc-tabs { display: flex; gap: 0; background: var(--bg2); border-radius: 10px; padding: 2px; margin-bottom: 14px; }
-.desc-tab { flex: 1; padding: 7px; border: none; background: transparent; font-size: 13px; font-weight: 600; color: var(--muted); border-radius: 8px; cursor: pointer; transition: all .15s; }
-.desc-tab.on { background: white; color: var(--black); }
-.desc-text { font-size: 14px; color: #3a3a3c; line-height: 1.65; margin-bottom: 18px; white-space: pre-wrap; }
-
-/* Workout rows */
-.wk-row { display: flex; align-items: center; gap: 12px; background: white; border-radius: 14px; padding: 12px 13px; margin-bottom: 8px; cursor: pointer; transition: transform .1s; border: 1px solid var(--sep); }
-.wk-row:active { transform: scale(.98); }
-.wk-dot { width: 10px; height: 10px; border-radius: 5px; flex-shrink: 0; }
-.wk-info { flex: 1; }
-.wk-name { font-size: 15px; font-weight: 700; margin-bottom: 2px; }
-.wk-meta { font-size: 12px; color: var(--muted); }
-.wk-ico { color: var(--light); font-size: 16px; }
-.wk-ico-play { color: var(--blue); font-size: 14px; font-weight: 700; }
-
-/* Schedule actions in sheet */
-.sched-actions { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
-.sched-btn { background: white; border: 1px solid var(--sep); border-radius: 14px; padding: 13px 15px; display: flex; align-items: center; gap: 12px; cursor: pointer; transition: transform .1s; }
-.sched-btn:active { transform: scale(.98); }
-.sched-btn-ico { width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0; }
-.sched-btn-info { flex: 1; }
-.sched-btn-lbl { font-size: 14px; font-weight: 700; }
-.sched-btn-sub { font-size: 12px; color: var(--muted); margin-top: 1px; }
-
-/* Buy / lib buttons */
-.btn-buy { width: 100%; background: var(--black); color: white; border: none; padding: 16px; border-radius: 16px; font-size: 15px; font-weight: 800; cursor: pointer; margin-top: 8px; transition: transform .1s; }
-.btn-buy:active { transform: scale(.98); }
-.btn-lib { width: 100%; background: var(--bg); border: none; border-radius: 14px; padding: 13px; font-size: 14px; font-weight: 600; color: var(--muted); text-align: center; margin-top: 8px; }
-
-/* ── Player ── */
-.player { background: var(--bg); min-height: 100vh; max-width: 480px; margin: 0 auto; padding-bottom: 90px; }
-.player-hdr { padding: 52px 18px 24px; color: white; border-radius: 0 0 28px 28px; }
-.player-back { background: rgba(255,255,255,.18); border: none; color: white; width: 38px; height: 38px; border-radius: 12px; font-size: 16px; display: flex; align-items: center; justify-content: center; cursor: pointer; margin-bottom: 16px; transition: background .15s; }
-.player-back:active { background: rgba(255,255,255,.3); }
-.player-badge { display: inline-block; background: rgba(255,255,255,.18); padding: 4px 12px; border-radius: 100px; font-size: 10px; font-weight: 800; letter-spacing: .08em; margin-bottom: 9px; }
-.player-title { font-size: 28px; font-weight: 900; letter-spacing: -.04em; margin-bottom: 4px; }
-.player-sub { font-size: 14px; opacity: .65; font-weight: 500; margin-bottom: 14px; }
-.p-bar-wrap { background: rgba(255,255,255,.18); border-radius: 4px; height: 4px; overflow: hidden; }
-.p-bar-fill { height: 100%; background: white; border-radius: 4px; transition: width .4s cubic-bezier(.4,0,.2,1); }
-.p-bar-txt { font-size: 12px; color: rgba(255,255,255,.55); margin-top: 5px; font-weight: 600; }
-.player-body { padding: 16px; }
-.ex-card { background: white; border-radius: 18px; padding: 14px; display: flex; align-items: center; gap: 12px; margin-bottom: 8px; border: 1px solid var(--sep); transition: opacity .25s; }
-.ex-card.done { opacity: .4; }
-.ex-num { font-size: 18px; font-weight: 900; color: var(--light); width: 24px; text-align: center; flex-shrink: 0; }
-.ex-info { flex: 1; }
-.ex-info h3 { font-size: 15px; font-weight: 700; margin-bottom: 3px; }
-.ex-info p { font-size: 12px; color: var(--muted); }
-.ex-info small { font-size: 11px; color: var(--light); font-style: italic; }
-.ex-chk { width: 32px; height: 32px; border-radius: 10px; border: 2px solid #e5e5ea; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all .2s; flex-shrink: 0; font-size: 14px; color: transparent; }
-.ex-chk.on { background: var(--green); border-color: var(--green); color: white; }
-.player-footer { position: fixed; bottom: 0; left: 50%; transform: translateX(-50%); width: 100%; max-width: 480px; padding: 12px 18px 32px; background: linear-gradient(to top, var(--bg) 65%, transparent); }
-.btn-finish { width: 100%; background: var(--black); color: white; border: none; padding: 16px; border-radius: 17px; font-size: 16px; font-weight: 800; cursor: pointer; transition: transform .1s; }
-.btn-finish:active { transform: scale(.98); }
-
-/* ── Forms ── */
-.form-field { margin-bottom: 14px; }
-.form-lbl { font-size: 11px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; display: block; margin-bottom: 6px; }
-.form-lbl-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
-.form-lbl-add { color: var(--blue); font-weight: 700; cursor: pointer; font-size: 13px; text-transform: none; letter-spacing: 0; }
-.form-inp { width: 100%; background: white; border: 1px solid var(--sep); border-radius: 13px; padding: 12px 13px; font-size: 14px; font-weight: 500; outline: none; color: var(--black); transition: border-color .15s; }
-.form-inp:focus { border-color: var(--blue); }
-.form-ta { width: 100%; background: white; border: 1px solid var(--sep); border-radius: 13px; padding: 12px 13px; font-size: 14px; font-weight: 500; outline: none; color: var(--black); resize: none; min-height: 75px; font-family: inherit; transition: border-color .15s; line-height: 1.5; }
-.form-ta:focus { border-color: var(--blue); }
-.form-row2 { display: flex; gap: 8px; }
-.form-row2 > * { flex: 1; }
-
-.ex-draft { background: white; border: 1px solid var(--sep); border-radius: 14px; padding: 12px; margin-bottom: 8px; }
-.ex-draft-top { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
-.ex-draft-name { flex: 1; background: var(--bg); border: none; border-radius: 10px; padding: 9px 11px; font-size: 14px; font-weight: 600; outline: none; color: var(--black); }
-.ex-draft-del { width: 30px; height: 30px; border-radius: 9px; background: rgba(255,59,48,.1); border: none; color: var(--red); font-size: 16px; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-.ex-draft-fields { display: flex; gap: 6px; }
-.ex-draft-field { flex: 1; display: flex; flex-direction: column; gap: 3px; }
-.ex-draft-field label { font-size: 10px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
-.ex-draft-field input { background: var(--bg); border: none; border-radius: 9px; padding: 7px 9px; font-size: 13px; font-weight: 700; outline: none; color: var(--black); width: 100%; }
-
-.lvl-row { display: flex; gap: 6px; }
-.lvl-btn { flex: 1; padding: 10px 4px; border-radius: 11px; border: 1.5px solid var(--sep); font-weight: 700; font-size: 12px; cursor: pointer; transition: all .15s; background: white; color: var(--muted); }
-.lvl-btn.on { border-color: var(--black); background: var(--black); color: white; }
-
-.colors-row { display: flex; gap: 8px; flex-wrap: wrap; }
-.color-swatch { width: 30px; height: 30px; border-radius: 15px; border: 3px solid transparent; cursor: pointer; transition: transform .15s; }
-.color-swatch.on { border-color: var(--black); transform: scale(1.2); }
-
-.covers-row { display: flex; gap: 8px; flex-wrap: wrap; }
-.cover-thumb { width: 52px; height: 52px; border-radius: 12px; border: 3px solid transparent; cursor: pointer; transition: all .15s; }
-.cover-thumb.on { border-color: var(--black); transform: scale(1.08); }
-
-.tags-input-row { display: flex; gap: 7px; flex-wrap: wrap; margin-top: 6px; }
-.tag-toggle { padding: 6px 12px; border-radius: 9px; border: 1.5px solid var(--sep); font-size: 12px; font-weight: 700; cursor: pointer; background: white; color: var(--muted); transition: all .15s; }
-.tag-toggle.on { background: var(--black); color: white; border-color: var(--black); }
-
-.btn-main { width: 100%; background: var(--black); color: white; border: none; padding: 15px; border-radius: 15px; font-size: 15px; font-weight: 800; cursor: pointer; margin-top: 8px; transition: transform .1s; }
-.btn-main:active { transform: scale(.98); }
-.btn-danger { width: 100%; background: none; border: 1.5px solid var(--red); color: var(--red); padding: 13px; border-radius: 14px; font-size: 14px; font-weight: 700; cursor: pointer; margin-top: 8px; }
-
-/* ── Loading ── */
-.ldots { display: flex; gap: 3px; align-items: center; }
-.ld { width: 5px; height: 5px; border-radius: 3px; background: currentColor; animation: lb .75s infinite; }
-.ld:nth-child(2){animation-delay:.12s;} .ld:nth-child(3){animation-delay:.24s;}
-@keyframes lb { 0%,80%,100%{transform:scale(.5);opacity:.4} 40%{transform:scale(1);opacity:1} }
-
-/* ── Empty state ── */
-.empty { text-align: center; padding: 32px 16px; color: var(--muted); }
-.empty-ico { font-size: 42px; margin-bottom: 10px; }
-.empty p { font-size: 14px; font-weight: 500; line-height: 1.55; }
-
-/* ── Create card ── */
-.create-cta { background: var(--black2); border-radius: 22px; padding: 18px; display: flex; align-items: center; gap: 14px; margin-bottom: 12px; cursor: pointer; transition: transform .1s; }
-.create-cta:active { transform: scale(.98); }
-.create-cta-ico { width: 46px; height: 46px; background: rgba(255,255,255,.12); border-radius: 14px; display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0; }
-.create-cta h3 { color: white; font-size: 16px; font-weight: 800; margin-bottom: 3px; }
-.create-cta p { color: rgba(255,255,255,.5); font-size: 12px; font-weight: 500; }
-
-/* ── Animations ── */
-@keyframes fadeUp { from{opacity:0;transform:translateY(12px)} to{opacity:1;transform:translateY(0)} }
-.au { animation: fadeUp .4s cubic-bezier(.16,1,.3,1) both; }
-
-/* ── Inline week-days sched picker ── */
-.week-sched { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
-.ws-row { display: flex; align-items: center; gap: 8px; background: white; border-radius: 13px; padding: 10px 12px; border: 1px solid var(--sep); }
-.ws-day { font-size: 13px; font-weight: 700; width: 28px; flex-shrink: 0; }
-.ws-wk { flex: 1; background: var(--bg); border: none; border-radius: 9px; padding: 7px 10px; font-size: 13px; font-weight: 600; color: var(--black); outline: none; cursor: pointer; }
-.ws-clear { background: none; border: none; color: var(--light); font-size: 16px; cursor: pointer; padding: 2px 4px; }
-
-/* ── Repeat schedule sheet ── */
-.repeat-opts { display: flex; flex-direction: column; gap: 8px; }
-.repeat-opt { background: white; border: 1.5px solid var(--sep); border-radius: 14px; padding: 13px 15px; cursor: pointer; transition: all .15s; display: flex; align-items: center; gap: 12px; }
-.repeat-opt.on { border-color: var(--blue); background: rgba(0,122,255,.05); }
-.repeat-opt-ico { font-size: 20px; }
-.repeat-opt-info { flex: 1; }
-.repeat-opt-lbl { font-size: 14px; font-weight: 700; }
-.repeat-opt-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
-.repeat-opt-check { width: 22px; height: 22px; border-radius: 11px; border: 2px solid var(--light); display: flex; align-items: center; justify-content: center; font-size: 12px; color: transparent; flex-shrink: 0; }
-.repeat-opt.on .repeat-opt-check { background: var(--blue); border-color: var(--blue); color: white; }
-
-/* ── Catalog section ── */
-.catalog-filter { display: flex; gap: 7px; overflow-x: auto; padding-bottom: 4px; margin-bottom: 14px; scrollbar-width: none; }
-.catalog-filter::-webkit-scrollbar { display: none; }
-.cf-btn { background: white; border: 1px solid var(--sep); border-radius: 20px; padding: 7px 13px; font-size: 13px; font-weight: 600; color: var(--muted); cursor: pointer; white-space: nowrap; transition: all .15s; flex-shrink: 0; }
-.cf-btn.on { background: var(--black); color: white; border-color: var(--black); }
-
-/* ── Program workout days ── */
-.prog-days-header { font-size: 15px; font-weight: 800; margin-bottom: 10px; }
-.prog-day-divider { font-size: 11px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin: 14px 0 6px; }
-
-/* ── Remove schedule dot ── */
-.cal-day-remove { position: absolute; top: 3px; right: 3px; width: 14px; height: 14px; border-radius: 7px; background: var(--red); color: white; font-size: 10px; display: none; align-items: center; justify-content: center; font-weight: 900; }
-.cal-day.has-wk:active .cal-day-remove { display: flex; }
-`;
-
-// ─── Initial data ─────────────────────────────────────────────────────────────
-
+// ─── INITIAL DATA ─────────────────────────────────────────────────────────────
 const INIT_PROGS: Program[] = [
   {
     id: "p1",
     title: "Моя база",
     author: "Я",
-    desc: "Личная программа для поддержания общей формы. Базовые упражнения с собственным весом, не требующие оборудования.",
+    desc: "Личная программа для поддержания общей формы. Базовые упражнения с собственным весом.",
     descAfter:
-      "Тренируйся 3 раза в неделю — например пн/ср/пт. Отдых между подходами строго соблюдай. Пей воду и высыпайся.\n\nНеделя 1–2: делай всё в умеренном темпе\nНеделя 3–4: добавь подходы и повторения",
+      "Тренируйся 3 раза в неделю. Отдых между подходами строго соблюдай.",
     level: "Средний",
     weeks: 4,
     daysPerWeek: 3,
@@ -467,13 +222,7 @@ const INIT_PROGS: Program[] = [
         color: PALETTE.green,
         exes: [
           { id: "e5", name: "Берпи", sets: "4", reps: "12", rest: "30с" },
-          {
-            id: "e6",
-            name: "Прыжки на месте",
-            sets: "3",
-            reps: "30с",
-            rest: "15с",
-          },
+          { id: "e6", name: "Прыжки", sets: "3", reps: "30с", rest: "15с" },
           {
             id: "e7",
             name: "Маунтин климбер",
@@ -492,9 +241,9 @@ const CATALOG_DATA: Program[] = [
     id: "c1",
     title: "Iron Body Pro",
     author: "Alex Lift",
-    desc: "Профессиональная программа на 8 недель для набора мышечной массы. 4 дня в зале, прогрессивная нагрузка, упор на базовые движения.",
+    desc: "Профессиональная программа на 8 недель для набора мышечной массы. 4 дня в зале.",
     descAfter:
-      "— 4 тренировки в неделю: Пн/Вт/Чт/Пт\n— 32 занятия с прогрессивной нагрузкой\n— Протокол питания: профицит ~300 ккал, 2 г белка на кг\n— Неделя 1–2: адаптация (лёгкие веса)\n— Неделя 3–6: основная нагрузка\n— Неделя 7–8: максимальная интенсивность",
+      "4 тренировки в неделю. Протокол питания: профицит ~300 ккал, 2г белка на кг.",
     level: "Продвинутый",
     weeks: 8,
     daysPerWeek: 4,
@@ -502,7 +251,7 @@ const CATALOG_DATA: Program[] = [
     owned: false,
     isOwn: false,
     priceStars: 250,
-    tags: ["Зал", "Масса", "Сила", "Штанга"],
+    tags: ["Зал", "Масса", "Сила"],
     rating: 4.9,
     reviews: 247,
     workoutDays: [
@@ -514,106 +263,15 @@ const CATALOG_DATA: Program[] = [
         focus: "Сила",
         color: PALETTE.red,
         exes: [
-          {
-            id: "ce1",
-            name: "Жим лёжа",
-            sets: "4",
-            reps: "6–8",
-            rest: "2–3м",
-            note: "Рабочий вес",
-          },
+          { id: "ce1", name: "Жим лёжа", sets: "4", reps: "6–8", rest: "2–3м" },
           {
             id: "ce2",
-            name: "Наклонный жим гантелей",
+            name: "Наклонный жим",
             sets: "3",
             reps: "10",
             rest: "90с",
           },
           { id: "ce3", name: "Разводка", sets: "3", reps: "12", rest: "60с" },
-          {
-            id: "ce4",
-            name: "Отжимания на брусьях",
-            sets: "3",
-            reps: "12",
-            rest: "60с",
-          },
-        ],
-      },
-      {
-        id: "cw2",
-        dayLabel: "День 2",
-        title: "Спина + Бицепс",
-        dur: "60 мин",
-        focus: "Сила",
-        color: PALETTE.indigo,
-        exes: [
-          {
-            id: "ce5",
-            name: "Становая тяга",
-            sets: "4",
-            reps: "5",
-            rest: "3м",
-            note: "Главное упражнение",
-          },
-          {
-            id: "ce6",
-            name: "Тяга верхнего блока",
-            sets: "3",
-            reps: "10",
-            rest: "90с",
-          },
-          {
-            id: "ce7",
-            name: "Горизонтальная тяга",
-            sets: "3",
-            reps: "12",
-            rest: "75с",
-          },
-          {
-            id: "ce8",
-            name: "Сгибания на бицепс",
-            sets: "3",
-            reps: "12",
-            rest: "60с",
-          },
-        ],
-      },
-      {
-        id: "cw3",
-        dayLabel: "День 3",
-        title: "Ноги + Плечи",
-        dur: "70 мин",
-        focus: "Масса",
-        color: PALETTE.orange,
-        exes: [
-          {
-            id: "ce9",
-            name: "Приседания со штангой",
-            sets: "4",
-            reps: "8",
-            rest: "2–3м",
-          },
-          {
-            id: "ce10",
-            name: "Жим ногами",
-            sets: "3",
-            reps: "12",
-            rest: "90с",
-          },
-          {
-            id: "ce11",
-            name: "Армейский жим",
-            sets: "3",
-            reps: "10",
-            rest: "90с",
-          },
-          {
-            id: "ce12",
-            name: "Тяга штанги к подбородку",
-            sets: "3",
-            reps: "12",
-            rest: "60с",
-          },
         ],
       },
     ],
@@ -622,9 +280,8 @@ const CATALOG_DATA: Program[] = [
     id: "c2",
     title: "Yoga Flow 6W",
     author: "Maria Sun",
-    desc: "Йога для начинающих. Гибкость, баланс и осознанность — всё за 6 недель занятий дома без инвентаря.",
-    descAfter:
-      "— Ежедневные занятия 20–40 минут\n— Включает дыхательные практики (пранаяма)\n— Расписание: 6 дней + 1 день отдыха\n— Прогресс виден уже на 2-й неделе\n— Нужны только коврик и тихое место",
+    desc: "Йога для начинающих. Гибкость, баланс и осознанность за 6 недель.",
+    descAfter: "Ежедневные занятия 20–40 минут. Включает дыхательные практики.",
     level: "Начальный",
     weeks: 6,
     daysPerWeek: 5,
@@ -632,7 +289,7 @@ const CATALOG_DATA: Program[] = [
     owned: false,
     isOwn: false,
     priceStars: 0,
-    tags: ["Дома", "Гибкость", "Йога", "Медитация"],
+    tags: ["Дома", "Гибкость", "Йога"],
     rating: 4.7,
     reviews: 89,
     workoutDays: [
@@ -658,74 +315,112 @@ const CATALOG_DATA: Program[] = [
             reps: "60с",
             rest: "—",
           },
-          {
-            id: "cy3",
-            name: "Воин I",
-            sets: "1",
-            reps: "45с кажд.",
-            rest: "—",
-          },
-          {
-            id: "cy4",
-            name: "Поза ребёнка",
-            sets: "1",
-            reps: "60с",
-            rest: "—",
-          },
-        ],
-      },
-    ],
-  },
-  {
-    id: "c3",
-    title: "HIIT Blaster",
-    author: "FitClub",
-    desc: "Высокоинтенсивный интервальный тренинг. Сжигай жир без зала — только коврик и желание.",
-    descAfter:
-      "— 3–4 тренировки в неделю по 25–35 минут\n— Протокол: 40с работа / 20с отдых\n— Пульс должен быть 75–85% от макс.\n— Разминка обязательна — 5 минут\n— Питание: дефицит 200–300 ккал",
-    level: "Средний",
-    weeks: 4,
-    daysPerWeek: 4,
-    cover: COVERS[4],
-    owned: false,
-    isOwn: false,
-    priceStars: 150,
-    tags: ["Дома", "Жиросжигание", "HIIT"],
-    rating: 4.6,
-    reviews: 134,
-    workoutDays: [
-      {
-        id: "cw14",
-        dayLabel: "День A",
-        title: "HIIT Full Body",
-        dur: "30 мин",
-        focus: "Жиросжигание",
-        color: PALETTE.red,
-        exes: [
-          { id: "ch1", name: "Берпи", sets: "5", reps: "10", rest: "20с" },
-          {
-            id: "ch2",
-            name: "Маунтин климбер",
-            sets: "5",
-            reps: "20",
-            rest: "20с",
-          },
-          {
-            id: "ch3",
-            name: "Прыжковые приседания",
-            sets: "4",
-            reps: "12",
-            rest: "20с",
-          },
         ],
       },
     ],
   },
 ];
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// ─── ICONS ────────────────────────────────────────────────────────────────────
+const CloseIcon = ({ size = 24 }: { size?: number }) => (
+  <svg
+    viewBox="0 0 24 24"
+    width={size}
+    height={size}
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2.5"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M18 6L6 18"></path>
+    <path d="M6 6l12 12"></path>
+  </svg>
+);
 
-function Stars({ n }: { n: number }): React.ReactElement {
+const SendIcon = ({ size = 20 }: { size?: number }) => (
+  <svg
+    viewBox="0 0 24 24"
+    width={size}
+    height={size}
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M22 2L11 13"></path>
+    <path d="M22 2L15 22L11 13L2 9L22 2Z"></path>
+  </svg>
+);
+
+const PlusIcon = ({ size = 20 }: { size?: number }) => (
+  <svg
+    viewBox="0 0 24 24"
+    width={size}
+    height={size}
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2.5"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M12 5v14"></path>
+    <path d="M5 12h14"></path>
+  </svg>
+);
+
+const TrashIcon = ({ size = 18 }: { size?: number }) => (
+  <svg
+    viewBox="0 0 24 24"
+    width={size}
+    height={size}
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2.5"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M3 6h18"></path>
+    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path>
+    <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+  </svg>
+);
+
+const SparkleIcon = ({ size = 16 }: { size?: number }) => (
+  <svg viewBox="0 0 24 24" width={size} height={size} fill="currentColor">
+    <path d="M12 0L14.59 9.41L24 12L14.59 14.59L12 24L9.41 14.59L0 12L9.41 9.41L12 0Z" />
+  </svg>
+);
+
+const CheckIcon = ({ size = 16 }: { size?: number }) => (
+  <svg
+    viewBox="0 0 24 24"
+    width={size}
+    height={size}
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="3"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M20 6L9 17l-5-5"></path>
+  </svg>
+);
+
+// ─── LOADING DOTS ─────────────────────────────────────────────────────────────
+function LoadingDots({ color = "white" }: { color?: string }) {
+  return (
+    <div className="loading-dots" style={{ color }}>
+      <div className="loading-dot" />
+      <div className="loading-dot" />
+      <div className="loading-dot" />
+    </div>
+  );
+}
+
+// ─── STARS RATING ─────────────────────────────────────────────────────────────
+function Stars({ n }: { n: number }) {
   return (
     <span>
       {Array.from({ length: 5 }, (_, i) =>
@@ -735,66 +430,42 @@ function Stars({ n }: { n: number }): React.ReactElement {
   );
 }
 
-function LoadingDots({
-  color = "white",
-}: {
-  color?: string;
-}): React.ReactElement {
-  return (
-    <div className="ldots" style={{ color }}>
-      <div className="ld" />
-      <div className="ld" />
-      <div className="ld" />
-    </div>
-  );
-}
-
+// ─── PROGRAM CARD ─────────────────────────────────────────────────────────────
 interface ProgCardProps {
   prog: Program;
   delay?: number;
   badge: React.ReactNode;
   onClick: () => void;
 }
-function ProgCard({
-  prog,
-  delay = 0,
-  badge,
-  onClick,
-}: ProgCardProps): React.ReactElement {
+
+function ProgCard({ prog, delay = 0, badge, onClick }: ProgCardProps) {
   return (
     <div
-      className="prog-card au"
+      className="prog-card animate-in"
       style={{ animationDelay: `${delay}s` }}
       onClick={onClick}
     >
-      <div className="prog-cov" style={{ background: prog.cover }}>
-        <div className="prog-ov" />
+      <div className="prog-cover" style={{ background: prog.cover }}>
+        <div className="prog-overlay" />
         {badge}
         <div className="prog-info">
           <div className="prog-title">{prog.title}</div>
-          <div className="prog-auth">{prog.author}</div>
+          <div className="prog-author">{prog.author}</div>
         </div>
       </div>
       <div className="prog-body">
         <div className="prog-desc">
-          {prog.desc.slice(0, 95)}
-          {prog.desc.length > 95 ? "…" : ""}
+          {prog.desc.slice(0, 90)}
+          {prog.desc.length > 90 ? "…" : ""}
         </div>
-        <div className="tags">
-          <span className="tag">{prog.level}</span>
-          <span className="tag">{prog.weeks} нед.</span>
-          <span className="tag">{prog.daysPerWeek}×/нед.</span>
-          {prog.tags.slice(0, 2).map((t) => (
-            <span key={t} className="tag">
-              {t}
-            </span>
-          ))}
+        <div className="prog-tags">
+          <span className="prog-tag">{prog.level}</span>
+          <span className="prog-tag">{prog.weeks} нед.</span>
+          <span className="prog-tag">{prog.daysPerWeek}×/нед.</span>
           {prog.rating && (
-            <span className="prog-rating" style={{ marginLeft: "auto" }}>
+            <span className="prog-rating">
               ★ {prog.rating}{" "}
-              <span style={{ color: "var(--muted)", fontWeight: 500 }}>
-                ({prog.reviews})
-              </span>
+              <span className="prog-reviews">({prog.reviews})</span>
             </span>
           )}
         </div>
@@ -803,50 +474,29 @@ function ProgCard({
   );
 }
 
-// ─── Main component ───────────────────────────────────────────────────────────
-
+// ─── MAIN COMPONENT ───────────────────────────────────────────────────────────
 export default function FitnessPage(): React.ReactElement {
-  useEffect(() => {
-    if (!document.getElementById("fp-css")) {
-      const s = document.createElement("style");
-      s.id = "fp-css";
-      s.textContent = CSS;
-      document.head.appendChild(s);
-    }
-  }, []);
-
-  // nav
   const [tab, setTab] = useState<Tab>("personal");
   const [screen, setScreen] = useState<Screen>("main");
-
-  // data
   const [myProgs, setMyProgs] = useState<Program[]>(INIT_PROGS);
   const [catalog, setCatalog] = useState<Program[]>(CATALOG_DATA);
   const [schedule, setSchedule] = useState<ScheduleMap>({
     [fmtDate(new Date())]: "wd1",
   });
-
-  // calendar
   const [weekOff, setWeekOff] = useState(0);
-
-  // player
   const [activeWk, setActiveWk] = useState<WorkoutDay | null>(null);
   const [checked, setChecked] = useState<CheckedMap>({});
-
-  // modals
   const [selProg, setSelProg] = useState<Program | null>(null);
   const [progDescTab, setProgDescTab] = useState<"before" | "after">("before");
   const [schedDateModal, setSchedDateModal] = useState<string | null>(null);
   const [showMakeWk, setShowMakeWk] = useState(false);
   const [showMakeProg, setShowMakeProg] = useState(false);
   const [catalogFilter, setCatalogFilter] = useState("Все");
-
-  // AI
   const [aiQ, setAiQ] = useState("");
   const [aiGoal, setAiGoal] = useState("Похудеть");
   const [aiLoad, setAiLoad] = useState(false);
 
-  // create workout form
+  // Create workout form
   const [wkName, setWkName] = useState("");
   const [wkColor, setWkColor] = useState(PALETTE.blue);
   const [wkFocus, setWkFocus] = useState("Тонус");
@@ -855,7 +505,7 @@ export default function FitnessPage(): React.ReactElement {
     { name: "", sets: "3", reps: "10", rest: "60с", note: "" },
   ]);
 
-  // create program form
+  // Create program form
   const [pName, setPName] = useState("");
   const [pDesc, setPDesc] = useState("");
   const [pDescA, setPDescA] = useState("");
@@ -866,7 +516,6 @@ export default function FitnessPage(): React.ReactElement {
   const [pDays, setPDays] = useState("3");
   const [pTags, setPTags] = useState<string[]>([]);
 
-  // ── derived
   const weekDays = useMemo<Date[]>(() => {
     const s = new Date();
     s.setDate(s.getDate() - ((s.getDay() + 6) % 7) + weekOff * 7);
@@ -889,20 +538,19 @@ export default function FitnessPage(): React.ReactElement {
     () => myProgs.flatMap((p) => p.workoutDays),
     [myProgs],
   );
-
   const today = fmtDate(new Date());
 
-  // ── actions
+  // ── ACTIONS ─────────────────────────────────────────────────────────────────
   const openWk = useCallback((wk: WorkoutDay) => {
     setActiveWk(wk);
     setChecked({});
     setScreen("player");
-    haptic("medium");
+    triggerHaptic("medium");
   }, []);
 
   const scheduleWk = (wkId: string, date: string) => {
     setSchedule((s) => ({ ...s, [date]: wkId }));
-    haptic("light");
+    triggerHaptic("light");
   };
 
   const removeFromSchedule = (date: string) => {
@@ -911,15 +559,13 @@ export default function FitnessPage(): React.ReactElement {
       delete n[date];
       return n;
     });
-    haptic("light");
+    triggerHaptic("light");
   };
 
-  // auto-schedule: fill N weeks with program's workout days rotating
   const autoSchedule = (prog: Program, weeks: number) => {
     const wds = prog.workoutDays;
     if (!wds.length) return;
     const daysPerWeek = prog.daysPerWeek || 3;
-    // Spread training days evenly across week: e.g. daysPerWeek=3 → Mon/Wed/Fri
     const slotsByDpw: Record<number, number[]> = {
       1: [1],
       2: [1, 4],
@@ -929,13 +575,10 @@ export default function FitnessPage(): React.ReactElement {
       6: [1, 2, 3, 4, 5, 6],
       7: [0, 1, 2, 3, 4, 5, 6],
     };
-
     const slots = slotsByDpw[daysPerWeek] || [1, 3, 5];
-
     const base = new Date();
-    const dayOfWeek = (base.getDay() + 6) % 7; // 0=Mon
-    base.setDate(base.getDate() - dayOfWeek); // start of current week
-
+    const dayOfWeek = (base.getDay() + 6) % 7;
+    base.setDate(base.getDate() - dayOfWeek);
     const newSched: ScheduleMap = { ...schedule };
     let wdIdx = 0;
     for (let w = 0; w < weeks; w++) {
@@ -948,12 +591,12 @@ export default function FitnessPage(): React.ReactElement {
       }
     }
     setSchedule(newSched);
-    haptic("heavy");
+    triggerNotificationHaptic("success");
   };
 
   const runAI = () => {
     if (!aiQ.trim() || aiLoad) return;
-    haptic("medium");
+    triggerHaptic("medium");
     setAiLoad(true);
     setTimeout(() => {
       const wkDay: WorkoutDay = {
@@ -965,13 +608,7 @@ export default function FitnessPage(): React.ReactElement {
         color: WK_COLORS[Math.floor(Math.random() * WK_COLORS.length)],
         exes: [
           { id: uid(), name: "Берпи", sets: "4", reps: "15", rest: "30с" },
-          {
-            id: uid(),
-            name: "Прыжки на месте",
-            sets: "3",
-            reps: "30с",
-            rest: "20с",
-          },
+          { id: uid(), name: "Прыжки", sets: "3", reps: "30с", rest: "20с" },
           { id: uid(), name: "Планка", sets: "3", reps: "45с", rest: "20с" },
           {
             id: uid(),
@@ -987,7 +624,7 @@ export default function FitnessPage(): React.ReactElement {
         title: `AI: ${aiQ.slice(0, 16)}`,
         author: "AI Тренер",
         desc: `Создано по запросу: "${aiQ}". Цель: ${aiGoal}.`,
-        descAfter: `Тренируйся 3–4 раза в неделю для достижения цели: ${aiGoal}.\n\nПрограмма обновится по мере прогресса.`,
+        descAfter: `Тренируйся 3–4 раза в неделю для достижения цели: ${aiGoal}.`,
         level: "Средний",
         weeks: 4,
         daysPerWeek: 3,
@@ -1001,12 +638,12 @@ export default function FitnessPage(): React.ReactElement {
       setMyProgs((prev) => [prog, ...prev]);
       setAiQ("");
       setAiLoad(false);
-      haptic("heavy");
+      triggerNotificationHaptic("success");
     }, 1800);
   };
 
   const buyProg = (prog: Program) => {
-    haptic("heavy");
+    triggerNotificationHaptic("success");
     const updated = { ...prog, owned: true };
     setCatalog((prev) => prev.map((p) => (p.id === prog.id ? updated : p)));
     setMyProgs((prev) => {
@@ -1018,7 +655,7 @@ export default function FitnessPage(): React.ReactElement {
 
   const saveWk = () => {
     if (!wkName.trim()) return;
-    haptic("medium");
+    triggerNotificationHaptic("success");
     const wkDay: WorkoutDay = {
       id: uid(),
       dayLabel: "День A",
@@ -1062,7 +699,7 @@ export default function FitnessPage(): React.ReactElement {
 
   const saveProg = () => {
     if (!pName.trim()) return;
-    haptic("medium");
+    triggerNotificationHaptic("success");
     const prog: Program = {
       id: uid(),
       title: pName,
@@ -1091,9 +728,9 @@ export default function FitnessPage(): React.ReactElement {
 
   const updateExDraft = (i: number, k: keyof ExerciseDraft, v: string) =>
     setWkExes((prev) => prev.map((x, j) => (j === i ? { ...x, [k]: v } : x)));
+
   const removeExDraft = (i: number) =>
     setWkExes((prev) => prev.filter((_, j) => j !== i));
-
   const toggleTag = (t: string) =>
     setPTags((prev) =>
       prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t],
@@ -1104,42 +741,42 @@ export default function FitnessPage(): React.ReactElement {
     (p) => catalogFilter === "Все" || p.level === catalogFilter,
   );
 
-  // ── PLAYER ────────────────────────────────────────────────────────────────
+  // Telegram BackButton for player
+  useTelegramBack(() => setScreen("main"), screen === "player");
 
+  // ── PLAYER SCREEN ───────────────────────────────────────────────────────────
   if (screen === "player" && activeWk) {
     const total = activeWk.exes.length;
     const done = activeWk.exes.filter((e) => checked[e.id]).length;
+    const progress = total ? (done / total) * 100 : 0;
+
     return (
-      <div className="player">
-        <div className="player-hdr" style={{ background: activeWk.color }}>
-          <button className="player-back" onClick={() => setScreen("main")}>
-            ✕
-          </button>
+      <div className="player-page">
+        <div className="player-header" style={{ background: activeWk.color }}>
           <div className="player-badge">ТРЕНИРОВКА</div>
           <div className="player-title">{activeWk.title}</div>
-          <div className="player-sub">
+          <div className="player-subtitle">
             {activeWk.dur} · {total} упражнений · {activeWk.focus}
           </div>
-          <div className="p-bar-wrap">
+          <div className="player-progress-wrap">
             <div
-              className="p-bar-fill"
-              style={{ width: `${total ? (done / total) * 100 : 0}%` }}
+              className="player-progress-fill"
+              style={{ width: `${progress}%` }}
             />
           </div>
-          <div className="p-bar-txt">
+          <div className="player-progress-text">
             {done} из {total} выполнено
           </div>
         </div>
-
         <div className="player-body">
           {activeWk.exes.map((ex, i) => (
             <div
               key={ex.id}
-              className={`ex-card au ${checked[ex.id] ? "done" : ""}`}
-              style={{ animationDelay: `${i * 0.04}s` }}
+              className={`exercise-card animate-in ${checked[ex.id] ? "done" : ""}`}
+              style={{ animationDelay: `${i * 0.05}s` }}
             >
-              <div className="ex-num">{i + 1}</div>
-              <div className="ex-info">
+              <div className="exercise-number">{i + 1}</div>
+              <div className="exercise-info">
                 <h3>{ex.name}</h3>
                 <p>
                   {ex.sets} подх. × {ex.reps} · Отдых {ex.rest}
@@ -1147,23 +784,22 @@ export default function FitnessPage(): React.ReactElement {
                 {ex.note && <small>{ex.note}</small>}
               </div>
               <div
-                className={`ex-chk ${checked[ex.id] ? "on" : ""}`}
+                className={`exercise-check ${checked[ex.id] ? "on" : ""}`}
                 onClick={() => {
-                  haptic("light");
+                  triggerSelectionHaptic();
                   setChecked((p) => ({ ...p, [ex.id]: !p[ex.id] }));
                 }}
               >
-                {checked[ex.id] && "✓"}
+                {checked[ex.id] && <CheckIcon size={18} />}
               </div>
             </div>
           ))}
         </div>
-
         <div className="player-footer">
           <button
             className="btn-finish"
             onClick={() => {
-              haptic("heavy");
+              triggerNotificationHaptic("success");
               setScreen("main");
             }}
           >
@@ -1176,64 +812,64 @@ export default function FitnessPage(): React.ReactElement {
     );
   }
 
-  // ── MAIN ─────────────────────────────────────────────────────────────────
-
+  // ── MAIN SCREEN ─────────────────────────────────────────────────────────────
   return (
-    <div className="fp">
-      {/* Header */}
-      <div className="fp-hdr">
-        <div className="fp-title-row">
-          <div className="fp-title">Тренировки</div>
-          <div className="fp-streak">🔥 12 дней</div>
+    <div className="fitness-page">
+      {/* HEADER */}
+      <div className="fitness-header">
+        <div className="fitness-title-row">
+          <div className="fitness-title">Тренировки</div>
+          <div className="fitness-streak">🔥 12 дней</div>
         </div>
-        <div style={{ paddingBottom: 14 }}>
-          <div className="fp-tabs">
-            {(["personal", "catalog"] as Tab[]).map((t) => (
-              <button
-                key={t}
-                className={`fp-tab ${tab === t ? "on" : ""}`}
-                onClick={() => {
-                  setTab(t);
-                  haptic();
-                }}
-              >
-                {t === "personal" ? "Личные" : "Каталог"}
-              </button>
-            ))}
-          </div>
+        <div className="fitness-tabs">
+          {(["personal", "catalog"] as Tab[]).map((t) => (
+            <button
+              key={t}
+              className={`fitness-tab ${tab === t ? "active" : ""}`}
+              onClick={() => {
+                setTab(t);
+                triggerHaptic();
+              }}
+            >
+              {t === "personal" ? "Личные" : "Каталог"}
+            </button>
+          ))}
         </div>
       </div>
 
-      <div className="fp-body">
-        {/* ══ PERSONAL TAB ══════════════════════════════════════════════════ */}
+      <div className="fitness-body">
+        {/* ══ PERSONAL TAB ═══════════════════════════════════════════════════ */}
         {tab === "personal" && (
           <>
-            {/* AI */}
-            <div className="ai-card au" style={{ animationDelay: ".02s" }}>
+            {/* AI CARD */}
+            <div
+              className="ai-card animate-in"
+              style={{ animationDelay: ".02s" }}
+            >
               <div className="ai-top">
                 <div className="ai-dot" />
-                <span className="ai-lbl">AI Тренер</span>
+                <span className="ai-label">AI Тренер</span>
               </div>
               <div className="ai-row">
                 <input
-                  className="ai-inp"
+                  className="ai-input"
                   placeholder="Опиши цель или тип тренировки..."
                   value={aiQ}
                   onChange={(e) => setAiQ(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && runAI()}
                 />
                 <button className="ai-send" onClick={runAI} disabled={aiLoad}>
-                  {aiLoad ? <LoadingDots /> : "🪄"}
+                  {aiLoad ? <LoadingDots /> : <SendIcon size={18} />}
                 </button>
               </div>
               <div className="ai-chips">
                 {GOAL_CHIPS.map((g) => (
                   <button
                     key={g}
-                    className={`chip ${aiGoal === g ? "on" : ""}`}
+                    className={`ai-chip ${aiGoal === g ? "active" : ""}`}
                     onClick={() => {
                       setAiGoal(g);
-                      haptic();
+                      triggerSelectionHaptic();
                     }}
                   >
                     {g}
@@ -1242,37 +878,43 @@ export default function FitnessPage(): React.ReactElement {
               </div>
             </div>
 
-            {/* Quick actions */}
-            <div className="q-row au" style={{ animationDelay: ".06s" }}>
+            {/* QUICK ACTIONS */}
+            <div
+              className="quick-actions animate-in"
+              style={{ animationDelay: ".06s" }}
+            >
               <button
-                className="q-btn"
+                className="quick-btn"
                 onClick={() => {
                   setShowMakeWk(true);
-                  haptic();
+                  triggerHaptic("medium");
                 }}
               >
-                <span className="q-btn-ico">＋</span> Тренировка
+                <PlusIcon size={18} /> Тренировка
               </button>
               <button
-                className="q-btn"
+                className="quick-btn"
                 onClick={() => {
                   setShowMakeProg(true);
-                  haptic();
+                  triggerHaptic("medium");
                 }}
               >
-                <span className="q-btn-ico">📋</span> Программа
+                <SparkleIcon size={16} /> Программа
               </button>
             </div>
 
-            {/* Calendar */}
-            <div className="sec-hdr au" style={{ animationDelay: ".08s" }}>
+            {/* CALENDAR */}
+            <div
+              className="section-header animate-in"
+              style={{ animationDelay: ".08s" }}
+            >
               <h2>Расписание</h2>
               {Object.keys(schedule).length > 0 && (
                 <button
-                  className="sec-btn"
+                  className="section-btn"
                   onClick={() => {
                     setSchedule({});
-                    haptic();
+                    triggerHaptic();
                   }}
                 >
                   Очистить
@@ -1280,30 +922,33 @@ export default function FitnessPage(): React.ReactElement {
               )}
             </div>
 
-            <div className="cal-wrap au" style={{ animationDelay: ".1s" }}>
-              <div className="cal-hdr">
+            <div
+              className="calendar-wrap animate-in"
+              style={{ animationDelay: ".1s" }}
+            >
+              <div className="calendar-header">
                 <button
-                  className="cal-nav-btn"
+                  className="calendar-nav"
                   onClick={() => setWeekOff((v) => v - 1)}
                 >
                   ‹
                 </button>
-                <span className="cal-month">{monthLabel}</span>
+                <span className="calendar-month">{monthLabel}</span>
                 <button
-                  className="cal-nav-btn"
+                  className="calendar-nav"
                   onClick={() => setWeekOff((v) => v + 1)}
                 >
                   ›
                 </button>
               </div>
-              <div className="cal-legend">
+              <div className="calendar-legend">
                 {DAY_SHORT.map((d) => (
-                  <div key={d} className="cal-leg-item">
+                  <div key={d} className="calendar-leg-item">
                     {d}
                   </div>
                 ))}
               </div>
-              <div className="cal-grid">
+              <div className="calendar-grid">
                 {weekDays.map((date) => {
                   const ds = fmtDate(date);
                   const wkId = schedule[ds];
@@ -1315,27 +960,21 @@ export default function FitnessPage(): React.ReactElement {
                   return (
                     <div
                       key={ds}
-                      className={`cal-day ${isToday ? "today" : ""} ${wkId ? "has-wk" : ""} ${isPast ? "past" : ""}`}
+                      className={`calendar-day ${isToday ? "today" : ""} ${wkId ? "has-workout" : ""} ${isPast ? "past" : ""}`}
                       onClick={() => {
-                        haptic();
+                        triggerHaptic();
                         if (wkDay) openWk(wkDay);
                         else setSchedDateModal(ds);
                       }}
-                      onContextMenu={(e) => {
-                        e.preventDefault();
-                        if (wkId) removeFromSchedule(ds);
-                      }}
                     >
-                      <span className="cdn">{DAY_SHORT[date.getDay()]}</span>
-                      <span className="cdnum">{date.getDate()}</span>
+                      <span className="calendar-day-name">
+                        {DAY_SHORT[date.getDay()]}
+                      </span>
+                      <span className="calendar-day-num">{date.getDate()}</span>
                       {wkId && (
                         <div
-                          className="cddot"
-                          style={{
-                            background: isToday
-                              ? "white"
-                              : (wkDay?.color ?? "var(--blue)"),
-                          }}
+                          className="calendar-day-dot"
+                          style={{ background: wkDay?.color ?? PALETTE.blue }}
                         />
                       )}
                     </div>
@@ -1343,26 +982,18 @@ export default function FitnessPage(): React.ReactElement {
                 })}
               </div>
             </div>
-            <div
-              style={{
-                fontSize: 12,
-                color: "var(--muted)",
-                textAlign: "center",
-                marginTop: -8,
-                marginBottom: 14,
-              }}
-            >
-              Нажми на день чтобы открыть · Удержи чтобы убрать тренировку
-            </div>
 
-            {/* My programs */}
-            <div className="sec-hdr au" style={{ animationDelay: ".12s" }}>
+            {/* MY PROGRAMS */}
+            <div
+              className="section-header animate-in"
+              style={{ animationDelay: ".12s" }}
+            >
               <h2>Мои программы</h2>
             </div>
 
             {myProgs.length === 0 ? (
-              <div className="empty">
-                <div className="empty-ico">🏋️</div>
+              <div className="empty-state">
+                <div className="empty-icon">🏋️</div>
                 <p>
                   Создай тренировку с помощью AI
                   <br />
@@ -1376,14 +1007,14 @@ export default function FitnessPage(): React.ReactElement {
                   prog={p}
                   delay={0.14 + i * 0.04}
                   badge={
-                    <span className="prog-badge b-owned">
+                    <span className="prog-badge owned">
                       {p.workoutDays.length} тренировок
                     </span>
                   }
                   onClick={() => {
                     setSelProg(p);
                     setProgDescTab(p.owned ? "after" : "before");
-                    haptic();
+                    triggerHaptic();
                   }}
                 />
               ))
@@ -1391,18 +1022,18 @@ export default function FitnessPage(): React.ReactElement {
           </>
         )}
 
-        {/* ══ CATALOG TAB ═══════════════════════════════════════════════════ */}
+        {/* ══ CATALOG TAB ════════════════════════════════════════════════════ */}
         {tab === "catalog" && (
           <>
             <div
-              className="create-cta au"
+              className="create-cta animate-in"
               style={{ animationDelay: ".02s" }}
               onClick={() => {
                 setShowMakeProg(true);
-                haptic();
+                triggerHaptic("medium");
               }}
             >
-              <div className="create-cta-ico">✦</div>
+              <div className="create-cta-icon">✦</div>
               <div>
                 <h3>Создать программу</h3>
                 <p>Продавай или делись бесплатно</p>
@@ -1411,7 +1042,7 @@ export default function FitnessPage(): React.ReactElement {
 
             {myProgs.filter((p) => p.isOwn).length > 0 && (
               <>
-                <div className="sec-hdr au">
+                <div className="section-header animate-in">
                   <h2>Мои программы</h2>
                 </div>
                 {myProgs
@@ -1423,7 +1054,7 @@ export default function FitnessPage(): React.ReactElement {
                       delay={0.08 + i * 0.04}
                       badge={
                         <span
-                          className={`prog-badge ${p.priceStars ? "b-paid" : "b-free"}`}
+                          className={`prog-badge ${p.priceStars ? "paid" : "free"}`}
                         >
                           {p.priceStars ? `★ ${p.priceStars}` : "Бесплатно"}
                         </span>
@@ -1431,24 +1062,24 @@ export default function FitnessPage(): React.ReactElement {
                       onClick={() => {
                         setSelProg(p);
                         setProgDescTab("before");
-                        haptic();
+                        triggerHaptic();
                       }}
                     />
                   ))}
               </>
             )}
 
-            <div className="sec-hdr au">
+            <div className="section-header animate-in">
               <h2>Каталог</h2>
             </div>
-            <div className="catalog-filter au">
+            <div className="catalog-filter animate-in">
               {catLevels.map((l) => (
                 <button
                   key={l}
-                  className={`cf-btn ${catalogFilter === l ? "on" : ""}`}
+                  className={`filter-btn ${catalogFilter === l ? "active" : ""}`}
                   onClick={() => {
                     setCatalogFilter(l);
-                    haptic();
+                    triggerHaptic();
                   }}
                 >
                   {l}
@@ -1463,7 +1094,7 @@ export default function FitnessPage(): React.ReactElement {
                 delay={0.1 + i * 0.04}
                 badge={
                   <span
-                    className={`prog-badge ${p.owned ? "b-owned" : p.priceStars ? "b-paid" : "b-free"}`}
+                    className={`prog-badge ${p.owned ? "owned" : p.priceStars ? "paid" : "free"}`}
                   >
                     {p.owned
                       ? "✓ Куплено"
@@ -1475,7 +1106,7 @@ export default function FitnessPage(): React.ReactElement {
                 onClick={() => {
                   setSelProg(p);
                   setProgDescTab("before");
-                  haptic();
+                  triggerHaptic();
                 }}
               />
             ))}
@@ -1483,27 +1114,29 @@ export default function FitnessPage(): React.ReactElement {
         )}
       </div>
 
-      {/* ══════════ MODALS ════════════════════════════════════════════════════ */}
-
-      {/* ── Program detail ── */}
+      {/* ══════════ MODALS ═══════════════════════════════════════════════════ */}
+      {/* PROGRAM DETAIL */}
       {selProg && (
-        <div className="overlay" onClick={() => setSelProg(null)}>
-          <div className="sheet" onClick={(e) => e.stopPropagation()}>
-            <div className="sheet-handle-bar">
-              <div className="shdl" />
+        <div className="modal-overlay" onClick={() => setSelProg(null)}>
+          <div className="modal-sheet" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-handle-bar">
+              <div className="modal-handle" />
             </div>
-            <div className="sheet-inner">
-              <div className="sh-cover" style={{ background: selProg.cover }}>
-                <div className="sh-cover-ov" />
-                <div className="sh-cover-txt">
+            <div className="modal-content">
+              <div
+                className="sheet-cover"
+                style={{ background: selProg.cover }}
+              >
+                <div className="sheet-cover-overlay" />
+                <div className="sheet-cover-text">
                   <h2>{selProg.title}</h2>
-                  <div className="sh-cover-meta">
+                  <div className="sheet-cover-meta">
                     {selProg.author} · {selProg.level}
                   </div>
                 </div>
-                <div className="sh-cover-badge">
+                <div className="sheet-cover-badge">
                   <span
-                    className={`prog-badge ${selProg.owned ? "b-owned" : selProg.priceStars ? "b-paid" : "b-free"}`}
+                    className={`prog-badge ${selProg.owned ? "owned" : selProg.priceStars ? "paid" : "free"}`}
                   >
                     {selProg.owned
                       ? "✓ В библиотеке"
@@ -1514,7 +1147,6 @@ export default function FitnessPage(): React.ReactElement {
                 </div>
               </div>
 
-              {/* Stats */}
               <div className="stats-row">
                 {[
                   { l: "Уровень", v: selProg.level },
@@ -1523,61 +1155,43 @@ export default function FitnessPage(): React.ReactElement {
                   { l: "Тренировок", v: `${selProg.workoutDays.length}` },
                 ].map((s) => (
                   <div key={s.l} className="stat-box">
-                    <div className="stat-lbl">{s.l}</div>
-                    <div className="stat-val">{s.v}</div>
+                    <div className="stat-label">{s.l}</div>
+                    <div className="stat-value">{s.v}</div>
                   </div>
                 ))}
               </div>
 
-              {/* Rating */}
               {selProg.rating && (
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 8,
-                    marginBottom: 14,
-                  }}
-                >
-                  <span
-                    style={{
-                      color: "var(--orange)",
-                      fontSize: 15,
-                      fontWeight: 800,
-                    }}
-                  >
+                <div className="rating-row">
+                  <span className="rating-stars">
                     <Stars n={selProg.rating} />
                   </span>
-                  <span style={{ fontSize: 14, fontWeight: 700 }}>
-                    {selProg.rating}
-                  </span>
-                  <span style={{ fontSize: 13, color: "var(--muted)" }}>
+                  <span className="rating-value">{selProg.rating}</span>
+                  <span className="rating-reviews">
                     {selProg.reviews} отзывов
                   </span>
                 </div>
               )}
 
-              {/* Tags */}
-              <div className="tags" style={{ marginBottom: 16 }}>
+              <div className="prog-tags-row">
                 {selProg.tags.map((t) => (
-                  <span key={t} className="tag tag-accent">
+                  <span key={t} className="prog-tag accent">
                     {t}
                   </span>
                 ))}
               </div>
 
-              {/* Description tabs */}
               {selProg.owned && selProg.descAfter ? (
                 <>
                   <div className="desc-tabs">
                     <button
-                      className={`desc-tab ${progDescTab === "before" ? "on" : ""}`}
+                      className={`desc-tab ${progDescTab === "before" ? "active" : ""}`}
                       onClick={() => setProgDescTab("before")}
                     >
                       О программе
                     </button>
                     <button
-                      className={`desc-tab ${progDescTab === "after" ? "on" : ""}`}
+                      className={`desc-tab ${progDescTab === "after" ? "active" : ""}`}
                       onClick={() => setProgDescTab("after")}
                     >
                       После покупки
@@ -1593,12 +1207,9 @@ export default function FitnessPage(): React.ReactElement {
                 <div className="desc-text">{selProg.desc}</div>
               )}
 
-              {/* Auto-schedule block (only if owned) */}
               {selProg.owned && (
                 <>
-                  <div className="prog-days-header">
-                    Автозапись в расписание
-                  </div>
+                  <div className="section-label">Автозапись в расписание</div>
                   <div className="sched-actions">
                     {[
                       {
@@ -1628,52 +1239,53 @@ export default function FitnessPage(): React.ReactElement {
                           setSelProg(null);
                         }}
                       >
-                        <div
-                          className="sched-btn-ico"
-                          style={{ background: "var(--bg)" }}
-                        >
-                          {opt.ico}
-                        </div>
+                        <div className="sched-btn-icon">{opt.ico}</div>
                         <div className="sched-btn-info">
-                          <div className="sched-btn-lbl">{opt.lbl}</div>
+                          <div className="sched-btn-label">{opt.lbl}</div>
                           <div className="sched-btn-sub">{opt.sub}</div>
                         </div>
-                        <span style={{ color: "var(--blue)", fontSize: 18 }}>
-                          ›
-                        </span>
+                        <span className="sched-btn-arrow">›</span>
                       </button>
                     ))}
                   </div>
                 </>
               )}
 
-              {/* Workout days list */}
-              <div className="prog-days-header">Тренировки программы</div>
+              <div className="section-label">Тренировки программы</div>
               {selProg.workoutDays.map((wk) => (
                 <div
                   key={wk.id}
-                  className="wk-row"
+                  className="workout-row"
                   onClick={() =>
                     selProg.owned && (setSelProg(null), openWk(wk))
                   }
                 >
-                  <div className="wk-dot" style={{ background: wk.color }} />
-                  <div className="wk-info">
-                    <div className="wk-name">
+                  <div
+                    className="workout-dot"
+                    style={{ background: wk.color }}
+                  />
+                  <div className="workout-info">
+                    <div className="workout-name">
                       {wk.dayLabel} — {wk.title}
                     </div>
-                    <div className="wk-meta">
+                    <div className="workout-meta">
                       {wk.dur} · {wk.focus} · {wk.exes.length} упражнений
                     </div>
                   </div>
-                  <div className={selProg.owned ? "wk-ico-play" : "wk-ico"}>
+                  <div
+                    className={
+                      selProg.owned ? "workout-icon-play" : "workout-icon-lock"
+                    }
+                  >
                     {selProg.owned ? "▶" : "🔒"}
                   </div>
                 </div>
               ))}
 
               {selProg.owned ? (
-                <div className="btn-lib">✓ Программа в вашей библиотеке</div>
+                <div className="btn-library">
+                  ✓ Программа в вашей библиотеке
+                </div>
               ) : (
                 <button className="btn-buy" onClick={() => buyProg(selProg)}>
                   {selProg.priceStars
@@ -1686,54 +1298,47 @@ export default function FitnessPage(): React.ReactElement {
         </div>
       )}
 
-      {/* ── Schedule date picker ── */}
+      {/* SCHEDULE DATE PICKER */}
       {schedDateModal && (
-        <div className="overlay" onClick={() => setSchedDateModal(null)}>
-          <div className="sheet" onClick={(e) => e.stopPropagation()}>
-            <div className="sheet-handle-bar">
-              <div className="shdl" />
+        <div className="modal-overlay" onClick={() => setSchedDateModal(null)}>
+          <div className="modal-sheet" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-handle-bar">
+              <div className="modal-handle" />
             </div>
-            <div className="sheet-inner">
-              <div style={{ fontSize: 20, fontWeight: 800, marginBottom: 4 }}>
-                Запланировать
-              </div>
-              <div
-                style={{
-                  fontSize: 14,
-                  color: "var(--muted)",
-                  marginBottom: 18,
-                }}
-              >
+            <div className="modal-content">
+              <div className="modal-title">Запланировать</div>
+              <div className="modal-subtitle">
                 {schedDateModal === today ? "Сегодня" : schedDateModal}
               </div>
-
               {allMyWkDays.length === 0 ? (
-                <div className="empty">
-                  <div className="empty-ico">📅</div>
+                <div className="empty-state">
+                  <div className="empty-icon">📅</div>
                   <p>Нет тренировок для планирования</p>
                 </div>
               ) : (
                 allMyWkDays.map((wk) => (
                   <div
                     key={wk.id}
-                    className="wk-row"
+                    className="workout-row"
                     onClick={() => {
                       scheduleWk(wk.id, schedDateModal!);
                       setSchedDateModal(null);
                     }}
                   >
-                    <div className="wk-dot" style={{ background: wk.color }} />
-                    <div className="wk-info">
-                      <div className="wk-name">{wk.title}</div>
-                      <div className="wk-meta">
+                    <div
+                      className="workout-dot"
+                      style={{ background: wk.color }}
+                    />
+                    <div className="workout-info">
+                      <div className="workout-name">{wk.title}</div>
+                      <div className="workout-meta">
                         {wk.dur} · {wk.exes.length} упражнений
                       </div>
                     </div>
-                    <div style={{ color: "var(--blue)", fontSize: 18 }}>+</div>
+                    <span className="workout-add">+</span>
                   </div>
                 ))
               )}
-
               {schedule[schedDateModal] && (
                 <button
                   className="btn-danger"
@@ -1750,33 +1355,29 @@ export default function FitnessPage(): React.ReactElement {
         </div>
       )}
 
-      {/* ── Create workout ── */}
+      {/* CREATE WORKOUT */}
       {showMakeWk && (
-        <div className="overlay" onClick={() => setShowMakeWk(false)}>
-          <div className="sheet" onClick={(e) => e.stopPropagation()}>
-            <div className="sheet-handle-bar">
-              <div className="shdl" />
+        <div className="modal-overlay" onClick={() => setShowMakeWk(false)}>
+          <div className="modal-sheet" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-handle-bar">
+              <div className="modal-handle" />
             </div>
-            <div className="sheet-inner">
-              <div style={{ fontSize: 20, fontWeight: 800, marginBottom: 18 }}>
-                Новая тренировка
-              </div>
-
+            <div className="modal-content">
+              <div className="modal-title">Новая тренировка</div>
               <div className="form-field">
-                <label className="form-lbl">Название</label>
+                <label className="form-label">Название</label>
                 <input
-                  className="form-inp"
+                  className="form-input"
                   placeholder="Ноги и ягодицы"
                   value={wkName}
                   onChange={(e) => setWkName(e.target.value)}
                 />
               </div>
-
-              <div className="form-row2" style={{ marginBottom: 14 }}>
+              <div className="form-row-2">
                 <div>
-                  <label className="form-lbl">Длительность (мин)</label>
+                  <label className="form-label">Длительность (мин)</label>
                   <input
-                    className="form-inp"
+                    className="form-input"
                     type="number"
                     placeholder="30"
                     value={wkDur}
@@ -1784,37 +1385,33 @@ export default function FitnessPage(): React.ReactElement {
                   />
                 </div>
                 <div>
-                  <label className="form-lbl">Фокус</label>
+                  <label className="form-label">Фокус</label>
                   <input
-                    className="form-inp"
+                    className="form-input"
                     placeholder="Сила / Кардио..."
                     value={wkFocus}
                     onChange={(e) => setWkFocus(e.target.value)}
                   />
                 </div>
               </div>
-
               <div className="form-field">
-                <label className="form-lbl">Цвет</label>
+                <label className="form-label">Цвет</label>
                 <div className="colors-row">
                   {WK_COLORS.map((c) => (
                     <div
                       key={c}
-                      className={`color-swatch ${wkColor === c ? "on" : ""}`}
+                      className={`color-swatch ${wkColor === c ? "active" : ""}`}
                       style={{ background: c }}
                       onClick={() => setWkColor(c)}
                     />
                   ))}
                 </div>
               </div>
-
               <div className="form-field">
-                <div className="form-lbl-row">
-                  <label className="form-lbl" style={{ margin: 0 }}>
-                    Упражнения
-                  </label>
+                <div className="form-label-row">
+                  <label className="form-label">Упражнения</label>
                   <span
-                    className="form-lbl-add"
+                    className="form-label-add"
                     onClick={() =>
                       setWkExes((p) => [
                         ...p,
@@ -1832,10 +1429,10 @@ export default function FitnessPage(): React.ReactElement {
                   </span>
                 </div>
                 {wkExes.map((ex, i) => (
-                  <div key={i} className="ex-draft">
-                    <div className="ex-draft-top">
+                  <div key={i} className="exercise-draft">
+                    <div className="exercise-draft-top">
                       <input
-                        className="ex-draft-name"
+                        className="exercise-draft-name"
                         placeholder="Название упражнения"
                         value={ex.name}
                         onChange={(e) =>
@@ -1844,18 +1441,18 @@ export default function FitnessPage(): React.ReactElement {
                       />
                       {wkExes.length > 1 && (
                         <button
-                          className="ex-draft-del"
+                          className="exercise-draft-del"
                           onClick={() => removeExDraft(i)}
                         >
-                          ×
+                          <TrashIcon size={16} />
                         </button>
                       )}
                     </div>
-                    <div className="ex-draft-fields">
+                    <div className="exercise-draft-fields">
                       {(
                         ["sets", "reps", "rest"] as (keyof ExerciseDraft)[]
                       ).map((k, ki) => (
-                        <div key={k} className="ex-draft-field">
+                        <div key={k} className="exercise-draft-field">
                           <label>
                             {["Подходы", "Повторения", "Отдых"][ki]}
                           </label>
@@ -1871,7 +1468,6 @@ export default function FitnessPage(): React.ReactElement {
                   </div>
                 ))}
               </div>
-
               <button className="btn-main" onClick={saveWk}>
                 Сохранить тренировку
               </button>
@@ -1880,33 +1476,29 @@ export default function FitnessPage(): React.ReactElement {
         </div>
       )}
 
-      {/* ── Create program ── */}
+      {/* CREATE PROGRAM */}
       {showMakeProg && (
-        <div className="overlay" onClick={() => setShowMakeProg(false)}>
-          <div className="sheet" onClick={(e) => e.stopPropagation()}>
-            <div className="sheet-handle-bar">
-              <div className="shdl" />
+        <div className="modal-overlay" onClick={() => setShowMakeProg(false)}>
+          <div className="modal-sheet" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-handle-bar">
+              <div className="modal-handle" />
             </div>
-            <div className="sheet-inner">
-              <div style={{ fontSize: 20, fontWeight: 800, marginBottom: 18 }}>
-                Новая программа
-              </div>
-
+            <div className="modal-content">
+              <div className="modal-title">Новая программа</div>
               <div className="form-field">
-                <label className="form-lbl">Название</label>
+                <label className="form-label">Название</label>
                 <input
-                  className="form-inp"
+                  className="form-input"
                   placeholder="Рельеф за 8 недель"
                   value={pName}
                   onChange={(e) => setPName(e.target.value)}
                 />
               </div>
-
-              <div className="form-row2" style={{ marginBottom: 14 }}>
+              <div className="form-row-2">
                 <div>
-                  <label className="form-lbl">Недель</label>
+                  <label className="form-label">Недель</label>
                   <input
-                    className="form-inp"
+                    className="form-input"
                     type="number"
                     placeholder="4"
                     value={pWeeks}
@@ -1914,9 +1506,9 @@ export default function FitnessPage(): React.ReactElement {
                   />
                 </div>
                 <div>
-                  <label className="form-lbl">Дней в нед.</label>
+                  <label className="form-label">Дней в нед.</label>
                   <input
-                    className="form-inp"
+                    className="form-input"
                     type="number"
                     placeholder="3"
                     value={pDays}
@@ -1924,47 +1516,45 @@ export default function FitnessPage(): React.ReactElement {
                   />
                 </div>
               </div>
-
               <div className="form-field">
-                <label className="form-lbl">Описание до покупки</label>
+                <label className="form-label">Описание до покупки</label>
                 <textarea
-                  className="form-ta"
+                  className="form-textarea"
                   placeholder="Что получит пользователь?"
                   value={pDesc}
                   onChange={(e) => setPDesc(e.target.value)}
                 />
               </div>
-
               <div className="form-field">
-                <label className="form-lbl">Описание после покупки</label>
+                <label className="form-label">Описание после покупки</label>
                 <textarea
-                  className="form-ta"
-                  placeholder="Детальное расписание, советы по питанию, секреты..."
+                  className="form-textarea"
+                  placeholder="Детальное расписание, советы..."
                   value={pDescA}
                   onChange={(e) => setPDescA(e.target.value)}
                   rows={4}
                 />
               </div>
-
               <div className="form-field">
-                <label className="form-lbl">Цена в Stars (0 = бесплатно)</label>
+                <label className="form-label">
+                  Цена в Stars (0 = бесплатно)
+                </label>
                 <input
-                  className="form-inp"
+                  className="form-input"
                   type="number"
                   placeholder="0"
                   value={pPrice}
                   onChange={(e) => setPPrice(e.target.value)}
                 />
               </div>
-
               <div className="form-field">
-                <label className="form-lbl">Уровень</label>
-                <div className="lvl-row">
+                <label className="form-label">Уровень</label>
+                <div className="level-row">
                   {(["Начальный", "Средний", "Продвинутый"] as Level[]).map(
                     (l) => (
                       <button
                         key={l}
-                        className={`lvl-btn ${pLevel === l ? "on" : ""}`}
+                        className={`level-btn ${pLevel === l ? "active" : ""}`}
                         onClick={() => setPLevel(l)}
                       >
                         {l}
@@ -1973,10 +1563,9 @@ export default function FitnessPage(): React.ReactElement {
                   )}
                 </div>
               </div>
-
               <div className="form-field">
-                <label className="form-lbl">Теги</label>
-                <div className="tags-input-row">
+                <label className="form-label">Теги</label>
+                <div className="tags-row">
                   {[
                     "Дома",
                     "Зал",
@@ -1991,7 +1580,7 @@ export default function FitnessPage(): React.ReactElement {
                   ].map((t) => (
                     <button
                       key={t}
-                      className={`tag-toggle ${pTags.includes(t) ? "on" : ""}`}
+                      className={`tag-toggle ${pTags.includes(t) ? "active" : ""}`}
                       onClick={() => toggleTag(t)}
                     >
                       {t}
@@ -1999,21 +1588,19 @@ export default function FitnessPage(): React.ReactElement {
                   ))}
                 </div>
               </div>
-
               <div className="form-field">
-                <label className="form-lbl">Обложка</label>
+                <label className="form-label">Обложка</label>
                 <div className="covers-row">
                   {COVERS.map((c) => (
                     <div
                       key={c}
-                      className={`cover-thumb ${pCover === c ? "on" : ""}`}
+                      className={`cover-thumb ${pCover === c ? "active" : ""}`}
                       style={{ background: c }}
                       onClick={() => setPCover(c)}
                     />
                   ))}
                 </div>
               </div>
-
               <button className="btn-main" onClick={saveProg}>
                 Опубликовать программу
               </button>

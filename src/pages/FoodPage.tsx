@@ -1,4 +1,4 @@
-// FoodPage.tsx - Исправленная версия (TypeScript errors fixed)
+// FoodPage.tsx - Все баги исправлены
 import { useState, useCallback, useEffect, useRef } from "react";
 import type { CSSProperties } from "react";
 import { getTelegramWebApp } from "../telegram";
@@ -20,7 +20,6 @@ const triggerHaptic = (style: TelegramHapticStyle = "light") => {
 const triggerSelectionHaptic = () => {
   const tg = getTelegramWebApp();
   if (tg?.HapticFeedback) {
-    // Используем impactOccurred вместо selectionChanged
     tg.HapticFeedback.impactOccurred("light");
   } else if (navigator.vibrate) {
     navigator.vibrate(5);
@@ -30,7 +29,6 @@ const triggerSelectionHaptic = () => {
 const triggerNotificationHaptic = (type: "success" | "warning" | "error") => {
   const tg = getTelegramWebApp();
   if (tg?.HapticFeedback) {
-    // Используем impactOccurred вместо notificationOccurred
     tg.HapticFeedback.impactOccurred(
       type === "success" ? "light" : type === "warning" ? "medium" : "heavy",
     );
@@ -46,13 +44,13 @@ const useTelegramBack = (onBack: () => void, isActive: boolean = true) => {
   useEffect(() => {
     if (!isActive) return;
     const tg = getTelegramWebApp();
-    // Добавлена проверка на undefined
     if (tg?.BackButton) {
-      tg.BackButton.show();
-      tg.BackButton.onClick(onBack);
+      const backButton = tg.BackButton;
+      backButton.show();
+      backButton.onClick(onBack);
       return () => {
-        tg.BackButton.offClick(onBack);
-        tg.BackButton.hide();
+        backButton.offClick(onBack);
+        backButton.hide();
       };
     }
   }, [onBack, isActive]);
@@ -111,7 +109,7 @@ const WEEK_DATES = [
 ];
 
 const INITIAL_MACROS: MacroData[] = [
-  { label: "Белки", value: 87, goal: 150, unit: "г", color: "#000000" },
+  { label: "Белки", value: 87, goal: 150, unit: "г", color: "#FFFFFF" },
   { label: "Жиры", value: 54, goal: 80, unit: "г", color: "#FF9500" },
   { label: "Углев.", value: 210, goal: 280, unit: "г", color: "#007AFF" },
 ];
@@ -206,22 +204,22 @@ const EMOJI_SUGGESTIONS = [
   "💧",
   "🌾",
   "🧂",
-  "🍬",
+  "",
   "🍎",
   "🥗",
   "🍗",
-  "🥚",
+  "",
   "🥑",
   "🍌",
   "🥕",
   "🍇",
   "🍓",
-  "🥛",
+  "",
   "☕",
   "🍵",
   "🥤",
   "🍯",
-  "🧀",
+  "",
   "🥜",
 ];
 
@@ -358,11 +356,11 @@ function RadialProgress({
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// CALORIE RING
+// CALORIE RING - FIXED (white, thicker, no background track)
 // ────────────────────────────────────────────────────────────────────────────
 function CalorieRing({ consumed, goal }: { consumed: number; goal: number }) {
   const size = 260;
-  const sw = 10;
+  const sw = 18;
   const r = (size - sw) / 2;
   const circ = 2 * Math.PI * r;
   const pct = Math.min(consumed / goal, 1);
@@ -377,16 +375,7 @@ function CalorieRing({ consumed, goal }: { consumed: number; goal: number }) {
           cy={size / 2}
           r={r}
           fill="none"
-          stroke="#E5E5EA"
-          strokeWidth={sw}
-          strokeLinecap="round"
-        />
-        <circle
-          cx={size / 2}
-          cy={size / 2}
-          r={r}
-          fill="none"
-          stroke="#000000"
+          stroke="#FFFFFF"
           strokeWidth={sw}
           strokeLinecap="round"
           className="radial-bar"
@@ -403,7 +392,101 @@ function CalorieRing({ consumed, goal }: { consumed: number; goal: number }) {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// WHEEL PICKER
+// COUNTER VALUE MODAL
+// ────────────────────────────────────────────────────────────────────────────
+interface CounterValueModalProps {
+  counter: CounterData;
+  onClose: () => void;
+  onSave: (value: number) => void;
+}
+
+function CounterValueModal({
+  counter,
+  onClose,
+  onSave,
+}: CounterValueModalProps) {
+  const [value, setValue] = useState(counter.value);
+  const [showPicker, setShowPicker] = useState(false);
+
+  const handleSave = () => {
+    triggerNotificationHaptic("success");
+    onSave(value);
+    onClose();
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content-full" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header-full">
+          <button className="modal-close-btn" onClick={onClose}>
+            <CloseIcon size={24} />
+          </button>
+          <span className="modal-title-full">{counter.label}</span>
+          <div className="modal-header-spacer" />
+        </div>
+
+        <div className="modal-scroll-content">
+          <div className="edit-section">
+            <label className="edit-label-full">Значение</label>
+            <button
+              className="edit-value-btn-full"
+              onClick={() => {
+                triggerHaptic("medium");
+                setShowPicker(true);
+              }}
+            >
+              <span className="edit-value-full">{value}</span>
+              <span className="edit-unit-full">{counter.unit}</span>
+            </button>
+          </div>
+
+          <div className="counter-quick-adds">
+            {counter.adds.map((val) => (
+              <button
+                key={val}
+                className="quick-add-btn"
+                onClick={() => {
+                  triggerHaptic("light");
+                  setValue(value + val);
+                }}
+              >
+                +{val} {counter.unit}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="modal-footer-full">
+          <button className="modal-btn-full modal-btn-cancel" onClick={onClose}>
+            Отмена
+          </button>
+          <button
+            className="modal-btn-full modal-btn-save"
+            onClick={handleSave}
+          >
+            Сохранить
+          </button>
+        </div>
+      </div>
+
+      {showPicker && (
+        <WheelPicker
+          value={value}
+          onChange={setValue}
+          min={0}
+          max={counter.goal * 2}
+          step={counter.id === "water" ? 50 : counter.id === "sodium" ? 50 : 1}
+          unit={counter.unit}
+          onClose={() => setShowPicker(false)}
+          title={counter.label}
+        />
+      )}
+    </div>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// WHEEL PICKER - FIXED FOR DECIMALS
 // ────────────────────────────────────────────────────────────────────────────
 interface WheelPickerProps {
   value: number;
@@ -414,6 +497,7 @@ interface WheelPickerProps {
   unit?: string;
   onClose: () => void;
   title?: string;
+  isDecimal?: boolean;
 }
 
 function WheelPicker({
@@ -425,9 +509,9 @@ function WheelPicker({
   unit,
   onClose,
   title,
+  isDecimal = false,
 }: WheelPickerProps) {
   const [localValue, setLocalValue] = useState(value);
-  // Удалена неиспользуемая переменная itemHeight
 
   const handleScroll = useCallback(
     (e: React.WheelEvent) => {
@@ -484,6 +568,7 @@ function WheelPicker({
               const offset = absoluteIdx - currentIndex;
               const opacity = 1 - Math.abs(offset) * 0.3;
               const scale = 1 - Math.abs(offset) * 0.15;
+              const displayValue = isDecimal ? (item / 10).toFixed(1) : item;
 
               return (
                 <div
@@ -499,7 +584,7 @@ function WheelPicker({
                     onChange(item);
                   }}
                 >
-                  <span className="wheel-value">{item}</span>
+                  <span className="wheel-value">{displayValue}</span>
                   {unit && <span className="wheel-unit">{unit}</span>}
                 </div>
               );
@@ -757,7 +842,7 @@ function MealEditModal({
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// WEIGHT/HEIGHT EDIT MODAL
+// WEIGHT/HEIGHT EDIT MODAL - FIXED LAYOUT
 // ────────────────────────────────────────────────────────────────────────────
 interface WeightEditModalProps {
   weight: number;
@@ -780,9 +865,9 @@ function WeightEditModal({
   const bmi = (localWeight / (localHeight / 100) ** 2).toFixed(1);
   const getBmiCategory = (bmiVal: number) => {
     if (bmiVal < 18.5) return { label: "Недостаток", color: "#FF9500" };
-    if (bmiVal < 25) return { label: "Норма", color: "#34C759" };
+    if (bmiVal < 25) return { label: "Норма", color: "#30d158" };
     if (bmiVal < 30) return { label: "Избыток", color: "#FF9500" };
-    return { label: "Ожирение", color: "#FF3B30" };
+    return { label: "Ожирение", color: "#FF453A" };
   };
   const bmiCategory = getBmiCategory(parseFloat(bmi));
 
@@ -866,6 +951,7 @@ function WeightEditModal({
           unit="кг"
           onClose={() => setShowWeightPicker(false)}
           title="Вес"
+          isDecimal
         />
       )}
       {showHeightPicker && (
@@ -1033,7 +1119,7 @@ function CustomCounterModal({ onClose, onSave }: CustomCounterModalProps) {
       unit,
       icon: emoji,
       adds: [Math.round(goal * 0.1), Math.round(goal * 0.25)],
-      colorVar: "#007AFF",
+      colorVar: "#FFFFFF",
       isCustom: true,
     });
     onClose();
@@ -1132,7 +1218,7 @@ function CustomCounterModal({ onClose, onSave }: CustomCounterModalProps) {
             </div>
             <p className="ai-suggestion-text">
               {label
-                ? `Для "${label}" цель ${goal} ${unit}. AI подберёт оптимальное значение.`
+                ? `Для "${label}" цель ${goal} ${unit}.`
                 : "Введите название для рекомендаций"}
             </p>
           </div>
@@ -1168,7 +1254,7 @@ function CustomCounterModal({ onClose, onSave }: CustomCounterModalProps) {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// AI CHAT PAGE
+// AI CHAT PAGE - TELEGRAM BACK BUTTON
 // ────────────────────────────────────────────────────────────────────────────
 interface AIChatPageProps {
   onBack: () => void;
@@ -1205,14 +1291,13 @@ function AIChatPage({ onBack }: AIChatPageProps) {
   const generateAIResponse = (userMessage: string): string => {
     const lowerMsg = userMessage.toLowerCase();
     if (lowerMsg.includes("калор"))
-      return `📊 Сегодня: 1950 ккал\n🎯 Цель: 2400 ккал\n⏳ Осталось: 450 ккал\n\nРекомендую лёгкий ужин!`;
+      return `📊 Сегодня: 1950 ккал\n🎯 Цель: 2400 ккал\n⏳ Осталось: 450 ккал`;
     if (lowerMsg.includes("белок"))
-      return `🥩 Съедено: 87г\n🎯 Цель: 150г\n⚠️ Недобор: 63г\n\nДобавьте творог или протеин!`;
-    if (lowerMsg.includes("вод"))
-      return `💧 Сейчас: 1400мл\n🎯 Цель: 2500мл\n\nВыпейте стакан воды!`;
+      return `🥩 Съедено: 87г\n🎯 Цель: 150г\n⚠️ Недобор: 63г`;
+    if (lowerMsg.includes("вод")) return `💧 Сейчас: 1400мл\n🎯 Цель: 2500мл`;
     if (lowerMsg.includes("рецепт"))
-      return `🍽️ Быстрый рецепт (450 ккал):\n• Курица 150г\n• Рис 100г\n• Овощи 200г\n\nБ: 42г | У: 45г | Ж: 12г`;
-    return `Понял! 🤔 Уточните вопрос — я помогу с питанием, рецептами или трекерами!`;
+      return `🍽️ Рецепт (450 ккал):\n• Курица 150г\n• Рис 100г\n• Овощи 200г`;
+    return `Понял! 🤔 Уточните вопрос — я помогу с питанием!`;
   };
 
   const handleSend = () => {
@@ -1255,18 +1340,6 @@ function AIChatPage({ onBack }: AIChatPageProps) {
   return (
     <div className="ai-chat-page">
       <div className="chat-header">
-        <button className="chat-back-btn" onClick={onBack}>
-          <svg
-            viewBox="0 0 24 24"
-            width="24"
-            height="24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.5"
-          >
-            <path d="M19 12H5M12 19l-7-7 7-7" />
-          </svg>
-        </button>
         <div className="chat-title-wrapper">
           <span className="chat-title">AI-Ассистент</span>
           <span className="chat-subtitle">Питание и здоровье</span>
@@ -1350,8 +1423,12 @@ export default function FoodPage({ onOpenProfile }: FoodPageProps) {
   const [showMacroModal, setShowMacroModal] = useState(false);
   const [showCustomCounterModal, setShowCustomCounterModal] = useState(false);
   const [showAIChat, setShowAIChat] = useState(false);
+  const [showCounterValueModal, setShowCounterValueModal] = useState(false);
   const [selectedMeal, setSelectedMeal] = useState<MealData | null>(null);
   const [selectedMacro, setSelectedMacro] = useState<MacroData | null>(null);
+  const [selectedCounter, setSelectedCounter] = useState<CounterData | null>(
+    null,
+  );
 
   const totalKcal = meals.reduce((sum, m) => sum + m.kcal, 0);
   const kcalGoal = 2400;
@@ -1400,6 +1477,18 @@ export default function FoodPage({ onOpenProfile }: FoodPageProps) {
   };
   const handleCustomCounterSave = (counter: CounterData) => {
     setCounters((prev) => [...prev, counter]);
+  };
+  const handleCounterValueSave = (value: number) => {
+    if (selectedCounter)
+      setCounters((prev) =>
+        prev.map((c) => (c.id === selectedCounter.id ? { ...c, value } : c)),
+      );
+  };
+
+  const openCounterValueModal = (counter: CounterData) => {
+    setSelectedCounter(counter);
+    triggerHaptic("medium");
+    setShowCounterValueModal(true);
   };
 
   useTelegramBack(() => setShowAIChat(false), showAIChat);
@@ -1455,7 +1544,10 @@ export default function FoodPage({ onOpenProfile }: FoodPageProps) {
         <span>КБЖУ</span>
         <button
           className="btn-icon-only"
-          onClick={() => triggerHaptic("light")}
+          onClick={() => {
+            triggerHaptic("light");
+            setMacros(INITIAL_MACROS);
+          }}
         >
           <EditIcon />
         </button>
@@ -1491,7 +1583,7 @@ export default function FoodPage({ onOpenProfile }: FoodPageProps) {
         ))}
       </div>
 
-      {/* HEALTH */}
+      {/* HEALTH - FIXED LAYOUT */}
       <div
         className="health-grid animate-in"
         style={{ "--i": 5 } as CSSProperties}
@@ -1508,10 +1600,10 @@ export default function FoodPage({ onOpenProfile }: FoodPageProps) {
             <EditIcon size={18} />
           </div>
           <div className="health-val-group">
-            <span className="health-val">
-              {weight}
-              <span className="health-unit">кг</span>
-            </span>
+            <span className="health-val">{weight}</span>
+            <span className="health-unit">кг</span>
+          </div>
+          <div className="health-height-row">
             <span className="health-height">Рост {height} см</span>
           </div>
           <span className="health-sub health-sub-down">↓ 0.2 кг</span>
@@ -1631,7 +1723,7 @@ export default function FoodPage({ onOpenProfile }: FoodPageProps) {
                 ))}
                 <button
                   className="btn-quick btn-quick-custom"
-                  onClick={() => triggerHaptic()}
+                  onClick={() => openCounterValueModal(c)}
                 >
                   <EditIcon size={16} />
                 </button>
@@ -1685,6 +1777,16 @@ export default function FoodPage({ onOpenProfile }: FoodPageProps) {
         <CustomCounterModal
           onClose={() => setShowCustomCounterModal(false)}
           onSave={handleCustomCounterSave}
+        />
+      )}
+      {showCounterValueModal && selectedCounter && (
+        <CounterValueModal
+          counter={selectedCounter}
+          onClose={() => {
+            setShowCounterValueModal(false);
+            setSelectedCounter(null);
+          }}
+          onSave={handleCounterValueSave}
         />
       )}
     </div>
