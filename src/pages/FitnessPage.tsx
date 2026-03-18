@@ -1,13 +1,16 @@
-// FitnessPage.tsx - Полная улучшенная версия в dark premium стиле
-import { useState, useMemo, useEffect, useCallback } from "react";
+// FitnessPage.tsx - Полная финальная версия
+import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { getTelegramWebApp } from "../telegram";
 import type { TelegramHapticStyle } from "../telegram";
 import "./FitnessPage.css";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────────
+// TYPES
+// ────────────────────────────────────────────────────────────────────────────
 type Level = "Начальный" | "Средний" | "Продвинутый";
 type Screen = "main" | "player";
 type Tab = "personal" | "catalog";
+type DescTab = "before" | "after";
 
 interface Exercise {
   id: string;
@@ -58,7 +61,9 @@ interface Program {
 type ScheduleMap = Record<string, string>;
 type CheckedMap = Record<string, boolean>;
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────────
+// CONSTANTS
+// ────────────────────────────────────────────────────────────────────────────
 const PALETTE = {
   blue: "#007AFF",
   green: "#30d158",
@@ -73,6 +78,7 @@ const PALETTE = {
 };
 
 const WK_COLORS = Object.values(PALETTE);
+
 const COVERS: string[] = [
   "linear-gradient(145deg, #0f0c29, #302b63, #24243e)",
   "linear-gradient(145deg, #1a1a2e, #e94560)",
@@ -124,10 +130,22 @@ const GOAL_CHIPS = [
   "Кардио",
 ];
 
+const CAT_FILTERS = [
+  "Все",
+  "Начальный",
+  "Средний",
+  "Продвинутый",
+  "Дома",
+  "Зал",
+  "Бесплатно",
+];
+
 const uid = (): string => Math.random().toString(36).substr(2, 8);
 const fmtDate = (d: Date): string => d.toISOString().split("T")[0];
 
-// ─── HAPTIC & TELEGRAM ────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────────
+// HAPTIC & TELEGRAM
+// ────────────────────────────────────────────────────────────────────────────
 const triggerHaptic = (style: TelegramHapticStyle = "light") => {
   const tg = getTelegramWebApp();
   if (tg?.HapticFeedback) {
@@ -173,7 +191,9 @@ const useTelegramBack = (onBack: () => void, isActive: boolean = true) => {
   }, [onBack, isActive]);
 };
 
-// ─── INITIAL DATA ─────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────────
+// INITIAL DATA
+// ────────────────────────────────────────────────────────────────────────────
 const INIT_PROGS: Program[] = [
   {
     id: "p1",
@@ -321,7 +341,9 @@ const CATALOG_DATA: Program[] = [
   },
 ];
 
-// ─── ICONS ────────────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────────
+// ICONS
+// ────────────────────────────────────────────────────────────────────────────
 const CloseIcon = ({ size = 24 }: { size?: number }) => (
   <svg
     viewBox="0 0 24 24"
@@ -408,7 +430,31 @@ const CheckIcon = ({ size = 16 }: { size?: number }) => (
   </svg>
 );
 
-// ─── LOADING DOTS ─────────────────────────────────────────────────────────────
+const LockIcon = ({ size = 18 }: { size?: number }) => (
+  <svg
+    viewBox="0 0 24 24"
+    width={size}
+    height={size}
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2.5"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+    <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+  </svg>
+);
+
+const PlayIcon = ({ size = 18 }: { size?: number }) => (
+  <svg viewBox="0 0 24 24" width={size} height={size} fill="currentColor">
+    <path d="M8 5v14l11-7z"></path>
+  </svg>
+);
+
+// ────────────────────────────────────────────────────────────────────────────
+// LOADING DOTS
+// ────────────────────────────────────────────────────────────────────────────
 function LoadingDots({ color = "white" }: { color?: string }) {
   return (
     <div className="loading-dots" style={{ color }}>
@@ -419,7 +465,9 @@ function LoadingDots({ color = "white" }: { color?: string }) {
   );
 }
 
-// ─── STARS RATING ─────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────────
+// STARS RATING
+// ────────────────────────────────────────────────────────────────────────────
 function Stars({ n }: { n: number }) {
   return (
     <span>
@@ -430,7 +478,9 @@ function Stars({ n }: { n: number }) {
   );
 }
 
-// ─── PROGRAM CARD ─────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────────
+// PROGRAM CARD
+// ────────────────────────────────────────────────────────────────────────────
 interface ProgCardProps {
   prog: Program;
   delay?: number;
@@ -474,7 +524,9 @@ function ProgCard({ prog, delay = 0, badge, onClick }: ProgCardProps) {
   );
 }
 
-// ─── MAIN COMPONENT ───────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────────
+// MAIN COMPONENT
+// ────────────────────────────────────────────────────────────────────────────
 export default function FitnessPage(): React.ReactElement {
   const [tab, setTab] = useState<Tab>("personal");
   const [screen, setScreen] = useState<Screen>("main");
@@ -487,7 +539,7 @@ export default function FitnessPage(): React.ReactElement {
   const [activeWk, setActiveWk] = useState<WorkoutDay | null>(null);
   const [checked, setChecked] = useState<CheckedMap>({});
   const [selProg, setSelProg] = useState<Program | null>(null);
-  const [progDescTab, setProgDescTab] = useState<"before" | "after">("before");
+  const [progDescTab, setProgDescTab] = useState<DescTab>("before");
   const [schedDateModal, setSchedDateModal] = useState<string | null>(null);
   const [showMakeWk, setShowMakeWk] = useState(false);
   const [showMakeProg, setShowMakeProg] = useState(false);
@@ -495,6 +547,8 @@ export default function FitnessPage(): React.ReactElement {
   const [aiQ, setAiQ] = useState("");
   const [aiGoal, setAiGoal] = useState("Похудеть");
   const [aiLoad, setAiLoad] = useState(false);
+  const [showAutoSchedule, setShowAutoSchedule] = useState(false);
+  const [scheduleWeeks, setScheduleWeeks] = useState(1);
 
   // Create workout form
   const [wkName, setWkName] = useState("");
@@ -515,6 +569,8 @@ export default function FitnessPage(): React.ReactElement {
   const [pWeeks, setPWeeks] = useState("4");
   const [pDays, setPDays] = useState("3");
   const [pTags, setPTags] = useState<string[]>([]);
+
+  const filterScrollRef = useRef<HTMLDivElement>(null);
 
   const weekDays = useMemo<Date[]>(() => {
     const s = new Date();
@@ -592,6 +648,8 @@ export default function FitnessPage(): React.ReactElement {
     }
     setSchedule(newSched);
     triggerNotificationHaptic("success");
+    setShowAutoSchedule(false);
+    setSelProg(null);
   };
 
   const runAI = () => {
@@ -654,7 +712,10 @@ export default function FitnessPage(): React.ReactElement {
   };
 
   const saveWk = () => {
-    if (!wkName.trim()) return;
+    if (!wkName.trim()) {
+      triggerNotificationHaptic("error");
+      return;
+    }
     triggerNotificationHaptic("success");
     const wkDay: WorkoutDay = {
       id: uid(),
@@ -698,7 +759,10 @@ export default function FitnessPage(): React.ReactElement {
   };
 
   const saveProg = () => {
-    if (!pName.trim()) return;
+    if (!pName.trim()) {
+      triggerNotificationHaptic("error");
+      return;
+    }
     triggerNotificationHaptic("success");
     const prog: Program = {
       id: uid(),
@@ -736,13 +800,32 @@ export default function FitnessPage(): React.ReactElement {
       prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t],
     );
 
-  const catLevels = ["Все", "Начальный", "Средний", "Продвинутый"];
-  const filteredCatalog = catalog.filter(
-    (p) => catalogFilter === "Все" || p.level === catalogFilter,
-  );
+  const filteredCatalog = useMemo(() => {
+    return catalog.filter((p) => {
+      if (catalogFilter === "Все") return true;
+      if (catalogFilter === "Бесплатно") return p.priceStars === 0;
+      if (["Начальный", "Средний", "Продвинутый"].includes(catalogFilter)) {
+        return p.level === catalogFilter;
+      }
+      return p.tags.includes(catalogFilter);
+    });
+  }, [catalog, catalogFilter]);
 
-  // Telegram BackButton for player
-  useTelegramBack(() => setScreen("main"), screen === "player");
+  // Telegram BackButton
+  useTelegramBack(
+    () => {
+      if (screen === "player") {
+        setScreen("main");
+      } else if (selProg) {
+        setSelProg(null);
+      } else if (showMakeWk) {
+        setShowMakeWk(false);
+      } else if (showMakeProg) {
+        setShowMakeProg(false);
+      }
+    },
+    screen === "player" || !!selProg || showMakeWk || showMakeProg,
+  );
 
   // ── PLAYER SCREEN ───────────────────────────────────────────────────────────
   if (screen === "player" && activeWk) {
@@ -1072,8 +1155,10 @@ export default function FitnessPage(): React.ReactElement {
             <div className="section-header animate-in">
               <h2>Каталог</h2>
             </div>
-            <div className="catalog-filter animate-in">
-              {catLevels.map((l) => (
+
+            {/* FIXED: Scrollable filter with proper overflow */}
+            <div className="catalog-filter animate-in" ref={filterScrollRef}>
+              {CAT_FILTERS.map((l) => (
                 <button
                   key={l}
                   className={`filter-btn ${catalogFilter === l ? "active" : ""}`}
@@ -1087,29 +1172,36 @@ export default function FitnessPage(): React.ReactElement {
               ))}
             </div>
 
-            {filteredCatalog.map((p, i) => (
-              <ProgCard
-                key={p.id}
-                prog={p}
-                delay={0.1 + i * 0.04}
-                badge={
-                  <span
-                    className={`prog-badge ${p.owned ? "owned" : p.priceStars ? "paid" : "free"}`}
-                  >
-                    {p.owned
-                      ? "✓ Куплено"
-                      : p.priceStars
-                        ? `★ ${p.priceStars}`
-                        : "Бесплатно"}
-                  </span>
-                }
-                onClick={() => {
-                  setSelProg(p);
-                  setProgDescTab("before");
-                  triggerHaptic();
-                }}
-              />
-            ))}
+            {filteredCatalog.length === 0 ? (
+              <div className="empty-state">
+                <div className="empty-icon">📦</div>
+                <p>Нет программ в этой категории</p>
+              </div>
+            ) : (
+              filteredCatalog.map((p, i) => (
+                <ProgCard
+                  key={p.id}
+                  prog={p}
+                  delay={0.1 + i * 0.04}
+                  badge={
+                    <span
+                      className={`prog-badge ${p.owned ? "owned" : p.priceStars ? "paid" : "free"}`}
+                    >
+                      {p.owned
+                        ? "✓ Куплено"
+                        : p.priceStars
+                          ? `★ ${p.priceStars}`
+                          : "Бесплатно"}
+                    </span>
+                  }
+                  onClick={() => {
+                    setSelProg(p);
+                    setProgDescTab("before");
+                    triggerHaptic();
+                  }}
+                />
+              ))
+            )}
           </>
         )}
       </div>
@@ -1235,8 +1327,8 @@ export default function FitnessPage(): React.ReactElement {
                         key={opt.lbl}
                         className="sched-btn"
                         onClick={() => {
-                          autoSchedule(selProg, opt.weeks);
-                          setSelProg(null);
+                          setScheduleWeeks(opt.weeks);
+                          setShowAutoSchedule(true);
                         }}
                       >
                         <div className="sched-btn-icon">{opt.ico}</div>
@@ -1277,7 +1369,11 @@ export default function FitnessPage(): React.ReactElement {
                       selProg.owned ? "workout-icon-play" : "workout-icon-lock"
                     }
                   >
-                    {selProg.owned ? "▶" : "🔒"}
+                    {selProg.owned ? (
+                      <PlayIcon size={18} />
+                    ) : (
+                      <LockIcon size={18} />
+                    )}
                   </div>
                 </div>
               ))}
@@ -1293,6 +1389,49 @@ export default function FitnessPage(): React.ReactElement {
                     : "Получить бесплатно"}
                 </button>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* AUTO SCHEDULE CONFIRMATION */}
+      {showAutoSchedule && selProg && (
+        <div
+          className="modal-overlay"
+          onClick={() => setShowAutoSchedule(false)}
+        >
+          <div
+            className="modal-sheet-small"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-handle-bar">
+              <div className="modal-handle" />
+            </div>
+            <div className="modal-content-small">
+              <div className="modal-title">Записать в расписание?</div>
+              <p className="modal-subtitle">
+                {selProg.daysPerWeek * scheduleWeeks} тренировок на{" "}
+                {scheduleWeeks}{" "}
+                {scheduleWeeks === 1
+                  ? "неделю"
+                  : scheduleWeeks < 5
+                    ? "недели"
+                    : "недель"}
+              </p>
+              <div className="confirm-actions">
+                <button
+                  className="confirm-btn cancel"
+                  onClick={() => setShowAutoSchedule(false)}
+                >
+                  Отмена
+                </button>
+                <button
+                  className="confirm-btn confirm"
+                  onClick={() => autoSchedule(selProg, scheduleWeeks)}
+                >
+                  Записать
+                </button>
+              </div>
             </div>
           </div>
         </div>
