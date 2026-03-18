@@ -83,9 +83,7 @@ export default function App() {
               <FoodPage onOpenProfile={() => setIsProfileOpen(true)} />
             )}
 
-            {activeTab === "fitness" && (
-              <FitnessPage />
-            )}
+            {activeTab === "fitness" && <FitnessPage />}
           </>
         )}
       </div>
